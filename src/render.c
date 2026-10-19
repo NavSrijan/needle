@@ -180,10 +180,11 @@ static void draw_recent_covers(cairo_t *cr, double scene_w, double scene_h,
         RecentCover *item = g_ptr_array_index((GPtrArray *)recent, i);
         if (!item) continue;
         /* The current track is already on the table sleeve; the wall shows history. */
-        if ((current->title || current->artist || current->album) &&
+        if ((current->title || current->artist) &&
             g_strcmp0(item->title ? item->title : "", current->title ? current->title : "") == 0 &&
-            g_strcmp0(item->artist ? item->artist : "", current->artist ? current->artist : "") == 0 &&
-            g_strcmp0(item->album ? item->album : "", current->album ? current->album : "") == 0) continue;
+            g_strcmp0(item->artist ? item->artist : "", current->artist ? current->artist : "") == 0) continue;
+        /* Empty gallery frames are less useful than showing only tracks with real artwork. */
+        if (!item->cover) continue;
         const guint slot = shown++;
         double scale_x = scene_w / 1200.0, scale_y = scene_h / 800.0;
         double x = (centers[slot] - side*.5) * scale_x, y = 56 * scale_y;
@@ -255,7 +256,8 @@ static void draw_player_metadata(cairo_t *cr, double scene_w, double scene_h,
     if (get_bool_pref("show-artist", TRUE) && track->artist && *track->artist) {
         fields[count] = track->artist; bold[count++] = FALSE;
     }
-    if (get_bool_pref("show-album", TRUE) && track->album && *track->album) {
+    if (get_bool_pref("show-album", TRUE) && track->album && *track->album &&
+        g_strcmp0(track->album, track->title) != 0 && g_strcmp0(track->album, track->artist) != 0) {
         fields[count] = track->album; bold[count++] = FALSE;
     }
     if (get_bool_pref("show-status", FALSE) && track->status && *track->status) {
@@ -328,6 +330,7 @@ static void cache_static_scene(Wallpaper *wallpaper, int w, int h,
 }
 
 void draw_scene(cairo_t *cr, int w, int h, double angle, Wallpaper *wallpaper) {
+    cairo_save(cr);
     const double scene_w = 1200;
     /* Match the virtual canvas to the monitor aspect before applying framing.
        This preserves the complete top and bottom edges on widescreen displays. */
@@ -363,6 +366,7 @@ void draw_scene(cairo_t *cr, int w, int h, double angle, Wallpaper *wallpaper) {
     draw_stylus_contact(cr, scene_w, scene_h);
     draw_current_cover(cr, scene_w, scene_h, &now, transitioning ? transition : 1.0);
     draw_player_metadata(cr, scene_w, scene_h, &now, transitioning ? transition : 1.0);
+    cairo_restore(cr);
     cairo_restore(cr);
 }
 

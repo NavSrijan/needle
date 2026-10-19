@@ -39,8 +39,7 @@ static void recent_cover_free(gpointer data) {
 
 static gboolean recent_cover_matches(const RecentCover *item, const NowPlaying *track) {
     return g_strcmp0(item->title ? item->title : "", track->title ? track->title : "") == 0 &&
-           g_strcmp0(item->artist ? item->artist : "", track->artist ? track->artist : "") == 0 &&
-           g_strcmp0(item->album ? item->album : "", track->album ? track->album : "") == 0;
+           g_strcmp0(item->artist ? item->artist : "", track->artist ? track->artist : "") == 0;
 }
 
 static void remember_current_cover(void) {
