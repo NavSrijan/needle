@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Needle Desktop
+Comment=Animated vinyl wallpaper
+Exec=needle
+Icon=audio-vinyl
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+StartupNotify=false
+X-GNOME-Autostart-enabled=true
