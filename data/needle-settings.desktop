@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Needle Settings
-Comment=Configure the Needle desktop scene
-Exec=needle --settings
-Icon=audio-vinyl
-Terminal=false
-Categories=AudioVideo;Audio;Player;Settings;
-StartupNotify=true
