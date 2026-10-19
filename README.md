@@ -2,6 +2,8 @@
 
 Animated vinyl wallpaper for Linux. Needle draws a listening room, spins a record while music plays, and reads track metadata and cover art from MPRIS players.
 
+![Needle running on Niri Wayland](assets/needle-desktop.png)
+
 ## Build and run
 
 On Debian or Ubuntu, install the build dependencies and run Needle:
