@@ -46,6 +46,25 @@ static void centered_text(cairo_t *cr, const char *value, double cx, double y, d
     text(cr, value, cx - ext.width / 2.0, y, size, face, CAIRO_FONT_WEIGHT_NORMAL, r, g, b, a);
 }
 
+static void fitted_centered_text(cairo_t *cr, const char *value, double cx, double y,
+                                double max_width, double size, gboolean bold,
+                                double r, double g, double b, double a) {
+    if (!value || !*value) return;
+    cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL,
+        bold ? CAIRO_FONT_WEIGHT_BOLD : CAIRO_FONT_WEIGHT_NORMAL);
+    cairo_set_font_size(cr, size);
+    cairo_text_extents_t ext;
+    cairo_text_extents(cr, value, &ext);
+    double scale_x = ext.width > max_width ? max_width / ext.width : 1.0;
+    cairo_save(cr);
+    cairo_translate(cr, cx, y);
+    cairo_scale(cr, scale_x, 1.0);
+    set_source(cr, r, g, b, a);
+    cairo_move_to(cr, -ext.width / 2.0, 0);
+    cairo_show_text(cr, value);
+    cairo_restore(cr);
+}
+
 static void paint_cover_image(cairo_t *cr, GdkPixbuf *image, double x, double y, double w, double h) {
     double iw = gdk_pixbuf_get_width(image), ih = gdk_pixbuf_get_height(image);
     double scale = MAX(w / iw, h / ih);
@@ -121,19 +140,30 @@ static void draw_recent_covers(cairo_t *cr, double scene_w, double scene_h) {
     const double side = 150;
     for (guint i = 0; i < G_N_ELEMENTS(centers) && i < recent->len; i++) {
         RecentCover *item = g_ptr_array_index((GPtrArray *)recent, i);
-        if (!item || !item->cover) continue;
+        if (!item) continue;
         double scale_x = scene_w / 1200.0, scale_y = scene_h / 800.0;
         double x = (centers[i] - side*.5) * scale_x, y = 56 * scale_y;
         double cover_w = side * scale_x, cover_h = side * scale_y;
-        cairo_save(cr);
-        cairo_rectangle(cr, x, y, cover_w, cover_h); cairo_clip(cr);
-        paint_cover_image(cr, item->cover, x, y, cover_w, cover_h);
-        cairo_restore(cr);
+        if (item->cover) {
+            cairo_save(cr);
+            cairo_rectangle(cr, x, y, cover_w, cover_h); cairo_clip(cr);
+            paint_cover_image(cr, item->cover, x, y, cover_w, cover_h);
+            cairo_restore(cr);
+        }
+
+        gchar **metadata = g_strsplit(item->key ? item->key : "", "\n", 3);
+        fitted_centered_text(cr, metadata[0], centers[i] * scale_x, 231 * scale_y,
+            164 * scale_x, 9.2 * scale_y, TRUE, .94, .86, .73, .98);
+        fitted_centered_text(cr, metadata[1], centers[i] * scale_x, 244 * scale_y,
+            164 * scale_x, 7.0 * scale_y, FALSE, .78, .69, .57, .88);
+        g_strfreev(metadata);
     }
 }
 
 static void draw_current_cover(cairo_t *cr, double scene_w, double scene_h) {
-    if (!get_bool_pref("show-art", TRUE) || !now.cover) return;
+    if (!get_bool_pref("show-art", TRUE)) return;
+    gboolean has_metadata = (now.title && *now.title) || (now.artist && *now.artist) || (now.album && *now.album);
+    if (!now.cover && !has_metadata) return;
     const double scale_x = scene_w / 1200.0, scale_y = scene_h / 800.0;
     cairo_save(cr);
     cairo_matrix_t jacket;
@@ -141,7 +171,18 @@ static void draw_current_cover(cairo_t *cr, double scene_w, double scene_h) {
     cairo_scale(cr, scale_x, scale_y);
     cairo_transform(cr, &jacket);
     cairo_rectangle(cr, 6, 6, 188, 188); cairo_clip(cr);
-    paint_cover_image(cr, now.cover, 6, 6, 188, 188);
+    if (now.cover) {
+        paint_cover_image(cr, now.cover, 6, 6, 188, 188);
+    } else {
+        cairo_pattern_t *paper = cairo_pattern_create_linear(6, 6, 194, 194);
+        cairo_pattern_add_color_stop_rgb(paper, 0, .075, .16, .19);
+        cairo_pattern_add_color_stop_rgb(paper, 1, .035, .075, .09);
+        cairo_rectangle(cr, 6, 6, 188, 188); cairo_set_source(cr, paper); cairo_fill(cr);
+        cairo_pattern_destroy(paper);
+        fitted_centered_text(cr, now.title, 100, 91, 166, 18, TRUE, .97, .91, .81, 1);
+        fitted_centered_text(cr, now.artist, 100, 116, 166, 11, FALSE, .83, .75, .63, .96);
+        fitted_centered_text(cr, now.album, 100, 145, 166, 8, FALSE, .73, .66, .56, .86);
+    }
     cairo_restore(cr);
 }
 

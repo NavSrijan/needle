@@ -9,7 +9,6 @@
 #include <cairo.h>
 #include <math.h>
 #include <stdint.h>
-#include <string.h>
 #include "needle.h"
 
 #define SCENE_PI 3.14159265358979323846
@@ -84,16 +83,6 @@ static void lettering(cairo_t *c,double x,double y,double size,
                             bold?CAIRO_FONT_WEIGHT_BOLD:CAIRO_FONT_WEIGHT_NORMAL);
     cairo_set_font_size(c,size); ink(c,rgb,opacity);
     cairo_move_to(c,x,y); cairo_show_text(c,s);
-}
-static void centered_lettering(cairo_t *c,double cx,double y,double size,
-                               const char *s,uint32_t rgb,double opacity,int bold) {
-    double approx = strlen(s) * size * (bold ? 0.34 : 0.31);
-    cairo_select_font_face(c,"Sans",CAIRO_FONT_SLANT_NORMAL,
-                            bold?CAIRO_FONT_WEIGHT_BOLD:CAIRO_FONT_WEIGHT_NORMAL);
-    cairo_set_font_size(c,size);
-    ink(c,rgb,opacity);
-    cairo_move_to(c,cx-approx,y);
-    cairo_show_text(c,s);
 }
 static uint32_t scramble(uint32_t n) {
     n^=n>>16; n*=0x7feb352du; n^=n>>15; n*=0x846ca68bu;
@@ -177,65 +166,17 @@ static void draw_window(cairo_t *c) {
 }
 
 static void draw_poster(cairo_t *c,int which,double x,double y,double w,double h) {
+    (void)which;
     const double pad=14;
-    const double art=x+pad, arty=y+pad, arts=w-2*pad;
-    const double footer_y=arty+arts+9;
     round_box(c,x+8,y+10,w,h,4,0x060b10,.40);
     round_box(c,x,y,w,h,4,0x12181b,1);
     round_box(c,x+3,y+3,w-6,h-6,2,0xb58f63,1);
     round_box(c,x+7,y+7,w-14,h-14,1,0x15191b,1);
-    round_box(c,art,arty,arts,arts,7,0x0f1518,1);
-    cairo_save(c); rounded_path(c,art,arty,arts,arts,7); cairo_clip(c);
-    if(which==0) {
-        linear_box(c,art,arty,arts,arts,0,arty,0,arty+arts,0xe9dfc7,0xd3c2a1);
-        oval(c,art+arts*.52,arty+arts*.37,arts*.24,arts*.24,0xd58c68,1);
-        oval(c,art+arts*.61,arty+arts*.36,arts*.24,arts*.24,0xf4eacd,1);
-        const double hill1[]={art,arty+arts*.72,art+arts*.24,arty+arts*.63,art+arts*.42,arty+arts*.70,
-                              art+arts*.63,arty+arts*.60,art+arts*.83,arty+arts*.68,art+arts,arty+arts*.62,
-                              art+arts,arty+arts,art,arty+arts};
-        polygon(c,hill1,8,0x304d50,1);
-        const double hill2[]={art,arty+arts*.82,art+arts*.20,arty+arts*.75,art+arts*.44,arty+arts*.82,
-                              art+arts*.67,arty+arts*.71,art+arts,arty+arts*.78,art+arts,arty+arts,art,arty+arts};
-        polygon(c,hill2,7,0x173138,.88);
-        box(c,art+14,arty+16,26,1,0x51615e,.55);
-        lettering(c,art+45,arty+19,5.5,"LP 01",0x51615e,.84,1);
-    } else if(which==1) {
-        linear_box(c,art,arty,arts,arts,0,arty,0,arty+arts,0x2a5555,0x142d34);
-        for(int n=0;n<8;n++)
-            segment(c,art+18,arty+21+n*14,art+arts-18,arty+18+n*14,1.3,0xc5cfb8,.12);
-        oval(c,art+arts*.5,arty+arts*.47,arts*.31,arts*.31,0xddaa68,1);
-        oval(c,art+arts*.5,arty+arts*.47,arts*.22,arts*.22,0x20444a,1);
-        oval(c,art+arts*.5,arty+arts*.47,arts*.08,arts*.08,0xf1d093,1);
-        oval_ring(c,art+arts*.5,arty+arts*.47,arts*.27,arts*.27,.009,0xf7dfb4,.28);
-        lettering(c,art+14,arty+20,5.5,"CATALOG 02",0xe4d4b4,.62,1);
-    } else {
-        linear_box(c,art,arty,arts,arts,0,arty,arts,arty+arts,0x8b625d,0x3b4156);
-        for(int j=0;j<6;j++) {
-            double yy=arty+16+j*24;
-            segment(c,art-6,yy,art+arts+8,yy-17,8,j%2?0xe6b885:0x2e404b,.58);
-        }
-        oval(c,art+arts*.67,arty+arts*.38,arts*.15,arts*.15,0xf3d4a5,1);
-        oval(c,art+arts*.67,arty+arts*.38,arts*.095,arts*.095,0x263d45,1);
-        oval(c,art+arts*.67,arty+arts*.38,arts*.023,arts*.023,0xf5c88f,1);
-        box(c,art,arty+arts*.74,arts,arts*.26,0x17242c,.76);
-        lettering(c,art+14,arty+20,5.5,"PRESSING 03",0xf1dec1,.57,1);
-    }
-    cairo_restore(c);
-
-    box(c,art,footer_y,w-2*pad,1,0x8d6a49,.38);
-    centered_lettering(c,x+w*.5,footer_y+16,10.0,
-                       which==0?"BLUE HOUR":(which==1?"SIDE A":"33 / 45"),
-                       0xf0debc,.98,1);
-    centered_lettering(c,x+w*.5,footer_y+28,6.7,
-                       which==0?"THE EVENING SESSIONS":(which==1?"A STUDY IN SOUND":"LONG PLAYING RECORDS"),
-                       0xc8af92,.84,0);
-    centered_lettering(c,x+w*.5,footer_y+37,5.6,
-                       which==0?"AMBIENT SERIES":(which==1?"CUT 02 / ANALOG DUB":"STEREO COLLECTION"),
-                       0xa88d70,.72,0);
+    /* Empty, recessed mounts remain genuinely blank until playback supplies covers. */
+    round_box(c,x+pad,y+pad,w-2*pad,w-2*pad,7,0x0d1418,1);
+    box(c,x+pad+2,y+pad+2,w-2*pad-4,1,0x829099,.10);
     segment(c,x+5,y+h-7,x+5,y+6,1,0xffd8a0,.22);
     segment(c,x+5,y+6,x+w-5,y+6,1,0xffd8a0,.30);
-    const double shine[]={x+18,y+16,x+29,y+16,x+87,y+h-18,x+76,y+h-18};
-    polygon(c,shine,4,0xffffff,.028);
 }
 static void draw_gallery(cairo_t *c) {
     draw_poster(c,0,370,42,178,228);
@@ -395,10 +336,8 @@ static void draw_cup(cairo_t *c) {
 }
 
 static void draw_sleeve(cairo_t *c) {
-    /* The record is already on the platter. This is its EMPTY jacket.
-       Artwork, lettering and paper grain are all drawn in one square local
-       coordinate system, then projected onto the table using Cairo's matrix.
-       Unlike the earlier versions, no second, half-exposed LP is invented. */
+    /* Leave a blank paper jacket here; the renderer adds live cover art or
+       current track text when available. */
 
     /* One restrained contact shadow and the narrow thickness of a paper sleeve. */
     const double shadow[]={197,619,357,574,444,706,284,751};
@@ -414,57 +353,9 @@ static void draw_sleeve(cairo_t *c) {
     cairo_matrix_init(&mat,.80,-.225,.435,.66,186,608);
     cairo_transform(c,&mat);
 
-    /* A tactile, cream paper stock surrounding the printed artwork. */
-    box(c,0,0,200,200,0xe2d2b7,1);
-    box(c,6,6,188,188,0x102b34,1);
-    cairo_save(c);
-    cairo_rectangle(c,6,6,188,188); cairo_clip(c);
-
-    /* High-contrast, editorial artwork: a layered sound wave at dusk.
-       No fake record printed onto a sleeve, no crowded stickers. */
-    linear_box(c,6,6,188,188,8,5,185,191,0x142c3a,0x071a25);
-    radial_glow(c,131,76,115,0xb66950,.18);
-
-    /* A few luminous, hand-composed wave ribbons. */
-    for(int k=0;k<5;k++) {
-        double off=(double)k*11;
-        cairo_move_to(c,0,78+off);
-        cairo_curve_to(c,41,28+off,85,39+off,118,77+off);
-        cairo_curve_to(c,145,109+off,170,103+off,206,68+off);
-        ink(c,k==0?0xeabf90:(k<3?0xc78a68:0x819a91),k==0?.86:(.38-k*.035));
-        cairo_set_line_width(c,k==0?5.6:(k==1?3.3:1.5));
-        cairo_stroke(c);
-    }
-    for(int k=0;k<4;k++) {
-        double off=(double)k*10;
-        cairo_move_to(c,-8,59+off);
-        cairo_curve_to(c,36,12+off,83,25+off,126,59+off);
-        cairo_curve_to(c,162,84+off,174,74+off,211,43+off);
-        ink(c,0xe2a97c,.11-k*.016);
-        cairo_set_line_width(c,1.2); cairo_stroke(c);
-    }
-    /* Editorial restraint: generous dark area for just one title. */
-    linear_box(c,6,130,188,64,6,130,6,194,0x182f39,0x0b202b);
-    box(c,22,140,31,1.6,0xddad7c,.86);
-    lettering(c,21,164,22.5,"SLOW SIGNAL",0xf7e8cc,1,1);
-    lettering(c,22,179,7.1,"ORIGINAL LISTENING SESSIONS",0xd3be9f,.86,0);
-
-    /* Minimal catalog details align to the square cover's axes. */
-    lettering(c,21,28,7.0,"NEEDLE   /   014",0xf5e5c9,.83,1);
-    oval(c,126,25.6,2.5,2.5,0xe6a679,.95);
-    lettering(c,134,28,6.6,"ON DECK",0xe4bb8d,.87,1);
-    box(c,21,36,158,1,0xf5d4b1,.15);
-    lettering(c,22,188,5.5,"STEREO   ·   33 1/3 RPM",0xd5b48f,.67,0);
-    lettering(c,149,188,5.5,"2026",0xd5b48f,.67,0);
-
-    /* Subtle print texture, deterministic and low-opacity. */
-    for(int i=0;i<84;i++) {
-        uint32_t n=scramble((uint32_t)(i*19+2301));
-        double x=8+(n%186), y=9+((n>>11)%184);
-        segment(c,x,y,x+2.4,y,.4,0xffffff,.022);
-    }
-    cairo_restore(c);
-    /* Paper crease and a soft edge-catching specular highlight. */
+    box(c,0,0,200,200,0xd8c9b0,1);
+    box(c,6,6,188,188,0xb9aa92,1);
+    box(c,9,9,182,182,0xc7b99f,1);
     segment(c,2,3,197,3,1.2,0xfff3d9,.60);
     segment(c,3,3,3,197,1.4,0xffffff,.28);
     cairo_restore(c);
