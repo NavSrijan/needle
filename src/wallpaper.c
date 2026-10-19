@@ -92,6 +92,7 @@ static void monitors_changed(GdkDisplay *display, gpointer unused) {
     }
     int n = gdk_display_get_n_monitors(display);
     for (int i = 0; i < n; i++) build_wallpaper(gdk_display_get_monitor(display, i));
+    start_animation();
 }
 
 void start_wallpaper(void) {

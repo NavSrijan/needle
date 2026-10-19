@@ -10,7 +10,6 @@
 
 #include "needle.h"
 
-static guint tick_id = 0;
 double spin_angle = 0;
 static gint64 last_spin_tick = 0;
 
@@ -278,22 +277,24 @@ gboolean wallpaper_draw(GtkWidget *widget, cairo_t *cr, gpointer data) {
     return FALSE;
 }
 
-static gboolean tick_wallpapers(gpointer unused) {
+static gboolean tick_wallpaper_frame(GtkWidget *widget, GdkFrameClock *clock, gpointer unused) {
     (void)unused;
-    gint64 now_us = g_get_monotonic_time();
-    if (last_spin_tick == 0) last_spin_tick = now_us;
+    const gint64 frame_time = gdk_frame_clock_get_frame_time(clock);
     gboolean playing = g_strcmp0(now.status, "Playing") == 0;
-    double elapsed = playing ? (now_us - last_spin_tick) / 1000000.0 : 0.0;
-    last_spin_tick = now_us;
-    if (playing) spin_angle = fmod(spin_angle + elapsed * (2.0 * G_PI * 33.333333 / 60.0), 2.0 * G_PI);
-    if (!playing && !player_transition_active()) return G_SOURCE_CONTINUE;
-    for (guint i = 0; i < wallpapers->len; i++) {
-        Wallpaper *wp = g_ptr_array_index(wallpapers, i);
-        if (wp->canvas) gtk_widget_queue_draw(wp->canvas);
+    if (frame_time > last_spin_tick) {
+        double elapsed = (last_spin_tick > 0 && playing)
+            ? MIN((frame_time - last_spin_tick) / 1000000.0, .05) : 0.0;
+        last_spin_tick = frame_time;
+        if (playing) spin_angle = fmod(spin_angle + elapsed * (2.0 * G_PI * 33.333333 / 60.0), 2.0 * G_PI);
     }
+    if (playing || player_transition_active()) gtk_widget_queue_draw(widget);
     return G_SOURCE_CONTINUE;
 }
 
 void start_animation(void) {
-    if (tick_id == 0) tick_id = g_timeout_add(40, tick_wallpapers, NULL);
+    for (guint i = 0; i < wallpapers->len; i++) {
+        Wallpaper *wp = g_ptr_array_index(wallpapers, i);
+        if (wp->canvas && wp->frame_callback_id == 0)
+            wp->frame_callback_id = gtk_widget_add_tick_callback(wp->canvas, tick_wallpaper_frame, NULL, NULL);
+    }
 }
