@@ -147,28 +147,6 @@ static void draw_live_record(cairo_t *cr, double w, double h, double angle,
     cairo_restore(cr);
 }
 
-static void draw_stylus_contact(cairo_t *cr, double scene_w, double scene_h) {
-    /* Continue the scene's tonearm precisely from its drawn stylus end. */
-    const double start_x = scene_w*.785, start_y = scene_h*.55125;
-    const double head_x = scene_w*.757, head_y = scene_h*.5625;
-    const double tip_x = scene_w*.754, tip_y = scene_h*.5875;
-    double angle = atan2(head_y - start_y, head_x - start_x);
-    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
-    cairo_move_to(cr, start_x, start_y); cairo_line_to(cr, head_x, head_y);
-    set_source(cr, .72, .67, .58, .96); cairo_set_line_width(cr, scene_w*.004); cairo_stroke(cr);
-    cairo_move_to(cr, start_x, start_y); cairo_line_to(cr, head_x, head_y);
-    set_source(cr, 1, .94, .81, .86); cairo_set_line_width(cr, scene_w*.0014); cairo_stroke(cr);
-    cairo_save(cr); cairo_translate(cr, head_x, head_y); cairo_rotate(cr, angle);
-    rounded_rect(cr, -scene_w*.010, -scene_h*.006, scene_w*.021, scene_h*.013, scene_w*.0025);
-    set_source(cr, .12, .105, .088, 1); cairo_fill(cr);
-    cairo_restore(cr);
-    cairo_move_to(cr, head_x, head_y + scene_h*.005);
-    cairo_line_to(cr, tip_x, tip_y);
-    set_source(cr, .91, .83, .67, .98); cairo_set_line_width(cr, MAX(.8, scene_w*.00065)); cairo_stroke(cr);
-    cairo_arc(cr, tip_x, tip_y, MAX(1.1, scene_w*.0008), 0, 2*G_PI);
-    set_source(cr, .97, .89, .72, 1); cairo_fill(cr);
-}
-
 static void draw_recent_covers(cairo_t *cr, double scene_w, double scene_h,
                                const GPtrArray *recent, const NowPlaying *current, double opacity) {
     if (!get_bool_pref("show-art", TRUE) || !recent || opacity <= 0.0) return;
@@ -363,7 +341,6 @@ void draw_scene(cairo_t *cr, int w, int h, double angle, Wallpaper *wallpaper) {
     draw_recent_covers(cr, scene_w, scene_h, player_recent_covers(), &now, 1.0);
     const double scene_scale = MAX(w/scene_w, h/scene_h) * zoom;
     draw_live_record(cr, scene_w, scene_h, angle, wallpaper, scene_scale);
-    draw_stylus_contact(cr, scene_w, scene_h);
     draw_current_cover(cr, scene_w, scene_h, &now, transitioning ? transition : 1.0);
     draw_player_metadata(cr, scene_w, scene_h, &now, transitioning ? transition : 1.0);
     cairo_restore(cr);
