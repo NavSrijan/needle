@@ -56,3 +56,7 @@ launch-login=false
 | `launch-login` | `true`, `false` | Adds or removes Needle from this user's XDG autostart. |
 
 Needle reads local artwork and HTTP(S) artwork URLs from the player. Remote downloads time out after eight seconds and are limited to 12 MiB.
+
+## License
+
+Needle is licensed under the GNU General Public License v3.0 or, at your option, any later version. See [LICENSE](LICENSE).
