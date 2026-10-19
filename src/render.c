@@ -220,8 +220,14 @@ static void draw_player_metadata(cairo_t *cr, double scene_w, double scene_h) {
     set_source(cr, .91, .72, .48, .24); cairo_set_line_width(cr, .8);
     cairo_move_to(cr, 478, 580); cairo_line_to(cr, 885, 580); cairo_stroke(cr);
 
-    const double first_y = count == 1 ? 612 : 590;
-    const double last_y = count == 1 ? 612 : 626;
+    double first_y, last_y;
+    switch (count) {
+        case 1: first_y = last_y = 610; break;
+        case 2: first_y = 600; last_y = 620; break;
+        case 3: first_y = 596; last_y = 620; break;
+        case 4: first_y = 594; last_y = 622; break;
+        default: first_y = 592; last_y = 624; break;
+    }
     for (guint i = 0; i < count; i++) {
         double y = count == 1 ? first_y : first_y + (last_y-first_y)*i/(count-1);
         double size = i == 0 && bold[i] ? 11.2 : (count > 3 ? 7.2 : 8.5);
