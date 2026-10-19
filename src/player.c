@@ -24,35 +24,40 @@ static GPtrArray *recent_covers;
 static GPtrArray *transition_recent_covers;
 static gint64 transition_started_us;
 static gboolean transition_active;
+static GCancellable *active_artwork_cancellable;
 
 static void now_clear(NowPlaying *item);
 
 static void recent_cover_free(gpointer data) {
     RecentCover *item = data;
-    g_free(item->key);
+    g_free(item->title);
+    g_free(item->artist);
+    g_free(item->album);
     g_clear_object(&item->cover);
     g_free(item);
 }
 
-static gchar *now_key(void) {
-    return g_strdup_printf("%s\n%s\n%s", now.title ? now.title : "",
-        now.artist ? now.artist : "", now.album ? now.album : "");
+static gboolean recent_cover_matches(const RecentCover *item, const NowPlaying *track) {
+    return g_strcmp0(item->title ? item->title : "", track->title ? track->title : "") == 0 &&
+           g_strcmp0(item->artist ? item->artist : "", track->artist ? track->artist : "") == 0 &&
+           g_strcmp0(item->album ? item->album : "", track->album ? track->album : "") == 0;
 }
 
 static void remember_current_cover(void) {
     if (!recent_covers || (!now.title && !now.artist && !now.album)) return;
-    gchar *key = now_key();
     GdkPixbuf *cover = now.cover ? g_object_ref(now.cover) : NULL;
     for (guint i = 0; i < recent_covers->len; i++) {
         RecentCover *old = g_ptr_array_index(recent_covers, i);
-        if (g_strcmp0(old->key, key) == 0) {
+        if (recent_cover_matches(old, &now)) {
             if (!cover && old->cover) cover = g_object_ref(old->cover);
             g_ptr_array_remove_index(recent_covers, i);
             break;
         }
     }
     RecentCover *item = g_new0(RecentCover, 1);
-    item->key = key;
+    item->title = g_strdup(now.title);
+    item->artist = g_strdup(now.artist);
+    item->album = g_strdup(now.album);
     item->cover = cover;
     g_ptr_array_insert(recent_covers, 0, item);
     /* Retain the current item plus three previous tracks for the wall gallery. */
@@ -78,7 +83,9 @@ static GPtrArray *copy_recent_covers(const GPtrArray *source) {
     for (guint i = 0; source && i < source->len; i++) {
         const RecentCover *item = g_ptr_array_index((GPtrArray *)source, i);
         RecentCover *duplicate = g_new0(RecentCover, 1);
-        duplicate->key = g_strdup(item->key);
+        duplicate->title = g_strdup(item->title);
+        duplicate->artist = g_strdup(item->artist);
+        duplicate->album = g_strdup(item->album);
         duplicate->cover = item->cover ? g_object_ref(item->cover) : NULL;
         g_ptr_array_add(copy, duplicate);
     }
@@ -162,11 +169,14 @@ static void cover_request_free(CoverRequest *request) {
 static void cover_headers_received(SoupMessage *message, gpointer data) {
     GCancellable *cancellable = G_CANCELLABLE(data);
     goffset length = soup_message_headers_get_content_length(soup_message_get_response_headers(message));
-    if (length > MAX_ARTWORK_BYTES) g_cancellable_cancel(cancellable);
+    /* Unknown-length (including chunked) bodies cannot be safely buffered by send_and_read. */
+    if (length < 0 || length > MAX_ARTWORK_BYTES) g_cancellable_cancel(cancellable);
 }
 
 static void cover_downloaded(GObject *source, GAsyncResult *result, gpointer data) {
     CoverRequest *request = data;
+    if (active_artwork_cancellable == request->cancellable)
+        g_clear_object(&active_artwork_cancellable);
     GError *error = NULL;
     GBytes *bytes = soup_session_send_and_read_finish(SOUP_SESSION(source), result, &error);
     GdkPixbuf *pixbuf = NULL;
@@ -187,6 +197,8 @@ static void cover_downloaded(GObject *source, GAsyncResult *result, gpointer dat
 }
 
 static void refresh_art(void) {
+    if (active_artwork_cancellable) g_cancellable_cancel(active_artwork_cancellable);
+    g_clear_object(&active_artwork_cancellable);
     g_clear_object(&now.cover);
     if (!now.art_url) return;
     if (g_str_has_prefix(now.art_url, "file://")) {
@@ -204,6 +216,7 @@ static void refresh_art(void) {
     request->message = soup_message_new("GET", request->url);
     request->cancellable = g_cancellable_new();
     if (!request->message) { cover_request_free(request); return; }
+    active_artwork_cancellable = g_object_ref(request->cancellable);
     g_signal_connect(request->message, "got-headers", G_CALLBACK(cover_headers_received), request->cancellable);
     soup_session_send_and_read_async(http_session, request->message, G_PRIORITY_DEFAULT, request->cancellable, cover_downloaded, request);
 }
@@ -217,22 +230,22 @@ static gboolean poll_mpris(gpointer unused) {
     if (!reply) { g_clear_error(&err); return G_SOURCE_CONTINUE; }
     GVariant *names = g_variant_get_child_value(reply, 0);
     NowPlaying candidate = {0};
-    char *fallback_player = NULL;
     for (gsize i = 0; i < g_variant_n_children(names); i++) {
         GVariant *entry = g_variant_get_child_value(names, i);
         const char *name = g_variant_get_string(entry, NULL);
         if (g_str_has_prefix(name, "org.mpris.MediaPlayer2.")) {
             NowPlaying tmp = {0};
             if (query_player(name, &tmp)) {
-                if (!fallback_player) fallback_player = g_strdup(name);
-                if (g_strcmp0(tmp.status, "Playing") == 0) { now_clear(&candidate); candidate = tmp; g_variant_unref(entry); break; }
-                now_clear(&tmp);
+                if (g_strcmp0(tmp.status, "Playing") == 0) {
+                    now_clear(&candidate); candidate = tmp; g_variant_unref(entry); break;
+                }
+                if (!candidate.player) candidate = tmp;
+                else now_clear(&tmp);
             }
         }
         g_variant_unref(entry);
     }
-    if (!candidate.player && fallback_player) query_player(fallback_player, &candidate);
-    g_free(fallback_player); g_variant_unref(names); g_variant_unref(reply);
+    g_variant_unref(names); g_variant_unref(reply);
     gboolean changed = g_strcmp0(candidate.title, now.title) || g_strcmp0(candidate.artist, now.artist) ||
         g_strcmp0(candidate.album, now.album) || g_strcmp0(candidate.art_url, now.art_url) ||
         g_strcmp0(candidate.status, now.status) || g_strcmp0(candidate.player, now.player);
@@ -262,6 +275,8 @@ void player_init(void) {
 }
 
 void player_shutdown(void) {
+    if (active_artwork_cancellable) g_cancellable_cancel(active_artwork_cancellable);
+    g_clear_object(&active_artwork_cancellable);
     now_clear(&now);
     now_clear(&transition_from);
     g_clear_pointer(&transition_recent_covers, g_ptr_array_unref);

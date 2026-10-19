@@ -23,10 +23,16 @@ static void app_startup(GApplication *application, gpointer data) {
     g_application_hold(application);
 }
 
+static void app_shutdown(GApplication *application, gpointer data) {
+    (void)application; (void)data;
+    player_shutdown();
+}
+
 int main(int argc, char **argv) {
     app=gtk_application_new("com.needle.desktop",G_APPLICATION_DEFAULT_FLAGS);
     g_signal_connect(app,"startup",G_CALLBACK(app_startup),NULL);
     g_signal_connect(app,"activate",G_CALLBACK(activate),NULL);
+    g_signal_connect(app,"shutdown",G_CALLBACK(app_shutdown),NULL);
     int status=g_application_run(G_APPLICATION(app),argc,argv);
     g_object_unref(app);
     return status;

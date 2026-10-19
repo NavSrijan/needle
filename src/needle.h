@@ -29,7 +29,9 @@ typedef struct {
 } NowPlaying;
 
 typedef struct {
-    gchar *key;
+    gchar *title;
+    gchar *artist;
+    gchar *album;
     GdkPixbuf *cover;
 } RecentCover;
 

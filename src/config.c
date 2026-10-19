@@ -78,7 +78,6 @@ void config_init(void) {
         g_key_file_set_string(prefs, "Needle", "framing", "mid");
         g_key_file_set_boolean(prefs, "Needle", "transparent-background", FALSE);
         g_key_file_set_boolean(prefs, "Needle", "show-art", TRUE);
-        g_key_file_set_boolean(prefs, "Needle", "show-caption", TRUE);
         g_key_file_set_boolean(prefs, "Needle", "hide-paused", FALSE);
         g_key_file_set_boolean(prefs, "Needle", "launch-login", FALSE);
         save_prefs();

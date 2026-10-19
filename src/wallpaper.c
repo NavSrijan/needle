@@ -14,6 +14,16 @@ GtkApplication *app;
 GPtrArray *wallpapers;
 gboolean wallpaper_started = FALSE;
 
+static void make_window_click_through(GtkWidget *window) {
+    GdkWindow *gdk_window = gtk_widget_get_window(window);
+    if (!gdk_window) return;
+    cairo_region_t *input_region = cairo_region_create();
+    gdk_window_input_shape_combine_region(gdk_window, input_region, 0, 0);
+    cairo_region_destroy(input_region);
+    if (!GDK_IS_WAYLAND_DISPLAY(gdk_display_get_default()))
+        gtk_window_set_keep_below(GTK_WINDOW(window), TRUE);
+}
+
 void refresh_wallpaper(Wallpaper *wp) {
     if (wp->canvas) gtk_widget_queue_draw(wp->canvas);
 }
@@ -23,7 +33,10 @@ void update_visibility(void) {
     for (guint i = 0; i < wallpapers->len; i++) {
         Wallpaper *wp = g_ptr_array_index(wallpapers, i);
         if (should_hide) gtk_widget_hide(wp->window);
-        else gtk_widget_show_all(wp->window);
+        else {
+            gtk_widget_show_all(wp->window);
+            make_window_click_through(wp->window);
+        }
     }
 }
 
@@ -75,9 +88,7 @@ static void build_wallpaper(GdkMonitor *monitor) {
     }
     gtk_widget_show_all(wp->window);
     /* The wallpaper is decorative; let desktop icons and pointer actions pass through it. */
-    cairo_region_t *input_region = cairo_region_create();
-    gdk_window_input_shape_combine_region(gtk_widget_get_window(wp->window), input_region, 0, 0);
-    cairo_region_destroy(input_region);
+    make_window_click_through(wp->window);
     if (get_bool_pref("hide-paused", FALSE) && g_strcmp0(now.status, "Playing") != 0) gtk_widget_hide(wp->window);
     gtk_widget_queue_draw(wp->canvas);
     g_ptr_array_add(wallpapers, wp);

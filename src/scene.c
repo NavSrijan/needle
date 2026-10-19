@@ -129,9 +129,9 @@ static void draw_window(cairo_t *c) {
         oval(c,px,py,((k>>24)%3==0)?1.1:.6,.6,0xffead7,.23);
     }
     const double mountains1[]={36,325,84,291,120,315,169,275,214,304,291,269,291,389,36,389};
-    polygon(c,mountains1,7,0x746f78,.56);
+    polygon(c,mountains1,8,0x746f78,.56);
     const double mountains2[]={28,356,76,323,122,341,174,310,225,342,298,309,298,395,28,395};
-    polygon(c,mountains2,7,0x49515d,.88);
+    polygon(c,mountains2,8,0x49515d,.88);
     for(int i=0;i<15;i++) {
         double bx=32+i*19, bh=20+(scramble(i+9)%39);
         box(c,bx,389-bh,17,bh,0x252f39,.68);

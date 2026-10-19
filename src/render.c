@@ -11,7 +11,7 @@
 #include "needle.h"
 
 double spin_angle = 0;
-static gint64 last_spin_tick = 0;
+static gint64 last_spin_tick_us = 0;
 
 static void queue_scene_damage(GtkWidget *widget, double x, double y, double width, double height) {
     GtkAllocation allocation;
@@ -175,14 +175,15 @@ static void draw_recent_covers(cairo_t *cr, double scene_w, double scene_h,
     /* These are the three square picture windows in scene.c's 1200 x 800 design. */
     const double centers[] = {459, 660, 861};
     const double side = 150;
-    gchar *current_key = g_strdup_printf("%s\n%s\n%s", current->title ? current->title : "",
-        current->artist ? current->artist : "", current->album ? current->album : "");
     guint shown = 0;
     for (guint i = 0; i < recent->len && shown < G_N_ELEMENTS(centers); i++) {
         RecentCover *item = g_ptr_array_index((GPtrArray *)recent, i);
         if (!item) continue;
         /* The current track is already on the table sleeve; the wall shows history. */
-        if ((current->title || current->artist || current->album) && g_strcmp0(item->key, current_key) == 0) continue;
+        if ((current->title || current->artist || current->album) &&
+            g_strcmp0(item->title ? item->title : "", current->title ? current->title : "") == 0 &&
+            g_strcmp0(item->artist ? item->artist : "", current->artist ? current->artist : "") == 0 &&
+            g_strcmp0(item->album ? item->album : "", current->album ? current->album : "") == 0) continue;
         const guint slot = shown++;
         double scale_x = scene_w / 1200.0, scale_y = scene_h / 800.0;
         double x = (centers[slot] - side*.5) * scale_x, y = 56 * scale_y;
@@ -194,14 +195,11 @@ static void draw_recent_covers(cairo_t *cr, double scene_w, double scene_h,
             cairo_restore(cr);
         }
 
-        gchar **metadata = g_strsplit(item->key ? item->key : "", "\n", 3);
-        fitted_centered_text(cr, metadata[0], centers[slot] * scale_x, 231 * scale_y,
+        fitted_centered_text(cr, item->title, centers[slot] * scale_x, 231 * scale_y,
             164 * scale_x, 9.2 * scale_y, TRUE, .94, .86, .73, .98 * opacity);
-        fitted_centered_text(cr, metadata[1], centers[slot] * scale_x, 244 * scale_y,
+        fitted_centered_text(cr, item->artist, centers[slot] * scale_x, 244 * scale_y,
             164 * scale_x, 7.0 * scale_y, FALSE, .78, .69, .57, .88 * opacity);
-        g_strfreev(metadata);
     }
-    g_free(current_key);
 }
 
 static void draw_current_cover(cairo_t *cr, double scene_w, double scene_h,
@@ -330,7 +328,6 @@ static void cache_static_scene(Wallpaper *wallpaper, int w, int h,
 }
 
 void draw_scene(cairo_t *cr, int w, int h, double angle, Wallpaper *wallpaper) {
-    cairo_save(cr);
     const double scene_w = 1200;
     /* Match the virtual canvas to the monitor aspect before applying framing.
        This preserves the complete top and bottom edges on widescreen displays. */
@@ -380,11 +377,15 @@ static gboolean tick_wallpaper_frame(GtkWidget *widget, GdkFrameClock *clock, gp
     Wallpaper *wallpaper = data;
     const gint64 frame_time = gdk_frame_clock_get_frame_time(clock);
     gboolean playing = g_strcmp0(now.status, "Playing") == 0;
-    if (frame_time > last_spin_tick) {
-        double elapsed = (last_spin_tick > 0 && playing)
-            ? MIN((frame_time - last_spin_tick) / 1000000.0, .05) : 0.0;
-        last_spin_tick = frame_time;
-        if (playing) spin_angle = fmod(spin_angle + elapsed * (2.0 * G_PI * 33.333333 / 60.0), 2.0 * G_PI);
+    const gint64 now_us = g_get_monotonic_time();
+    if (playing) {
+        if (last_spin_tick_us > 0) {
+            const double elapsed = (now_us - last_spin_tick_us) / 1000000.0;
+            spin_angle = fmod(spin_angle + elapsed * (2.0 * G_PI * 33.333333 / 60.0), 2.0 * G_PI);
+        }
+        last_spin_tick_us = now_us;
+    } else {
+        last_spin_tick_us = 0;
     }
     gint64 refresh_interval = 0;
     gdk_frame_clock_get_refresh_info(clock, frame_time, &refresh_interval, NULL);
