@@ -16,11 +16,12 @@ Install to `/usr/local` with `sudo make install`.
 
 ## Desktop support
 
-- **Wayland:** Requires layer-shell. Supported targets include Hyprland and Niri. GNOME Wayland is unsupported.
-- **X11:** Uses a desktop-type window behind normal windows. Stacking and desktop integration vary by desktop environment.
+- **Tested:** Niri on Wayland.
+- **Wayland:** Requires layer-shell. Hyprland should work but has not been verified. GNOME Wayland is unsupported.
+- **X11:** Not tested.
 - **macOS:** Not supported.
 
-Needle creates one wallpaper window per monitor. The window does not take pointer input, so desktop icons remain usable. Track changes crossfade artwork and metadata over half a second. Three previous tracks appear in the wall frames during each session.
+Needle creates one wallpaper window per monitor. The window does not take pointer input, so desktop icons remain usable. Track artwork and metadata update immediately when the player changes tracks. Three previous tracks appear in the wall frames during each session.
 
 ## Settings
 
