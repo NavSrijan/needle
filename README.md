@@ -1,6 +1,6 @@
 # Needle for Linux
 
-Needle places a photographic listening room and an animated vinyl record on the desktop background layer. It reads track details and album art from any MPRIS-compatible player. It is a small native GTK application with no web runtime or online account requirement.
+Needle places a programmatically drawn listening room and an animated vinyl record on the desktop background layer. It reads track details and album art from any MPRIS-compatible player. It is a small native GTK application with no web runtime or online account requirement.
 
 ## Build
 
@@ -24,14 +24,21 @@ framing=mid
 transparent-background=false
 show-art=true
 show-caption=true
+show-title=true
+show-artist=true
+show-album=true
+show-status=false
+show-player=false
 hide-paused=false
 launch-login=false
 ```
 
 - `framing`: `wide`, `mid`, or `close`.
-- `transparent-background`: set to `true` to float the record, recent covers, and current sleeve over the desktop.
-- `show-art`: show recent covers in the wall frames and the current sleeve on its stand.
-- `show-caption`: show the current track title on the sleeve stand's small label.
+- `transparent-background`: set to `true` to float the record, recent covers, sleeve, and player display over the desktop.
+- `show-art`: show recent covers in the wall frames and the current sleeve artwork.
+- `show-title`, `show-artist`, `show-album`: independently show these fields on the turntable's front display.
+- `show-status`, `show-player`: optionally show playback status and the player name on that display.
+- `show-caption`: retained for compatibility with older configs.
 - `hide-paused`: hide the scene when the player is not playing.
 - `launch-login`: create or remove the per-user XDG autostart entry.
 
@@ -41,7 +48,7 @@ Wayland layer-shell is the priority and targets compositors such as Hyprland and
 
 The wallpaper surface is non-interactive so desktop icons and pointer actions pass through it. MPRIS artwork may come from a local file or HTTP(S) URL; remote fetches are asynchronous, time out after eight seconds, and are limited to 12 MiB.
 
-The three wall frames show the current cover and the two most recently played covers observed during the current Needle session.
+The current track appears on the table sleeve and front display. The three wall frames show the previous three tracks observed during the current Needle session.
 
 ## macOS
 

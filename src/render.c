@@ -174,10 +174,72 @@ static void draw_current_cover(cairo_t *cr, double scene_w, double scene_h) {
     cairo_restore(cr);
 }
 
+static char *player_display_name(const char *bus_name) {
+    if (!bus_name || !*bus_name) return NULL;
+    const char *short_name = strrchr(bus_name, '.');
+    short_name = short_name ? short_name + 1 : bus_name;
+    char *name = g_strdup(short_name);
+    if (*name) name[0] = g_ascii_toupper(name[0]);
+    return name;
+}
+
+static void draw_player_metadata(cairo_t *cr, double scene_w, double scene_h) {
+    const double sx = scene_w / 1200.0, sy = scene_h / 800.0;
+    const gboolean has_track = (now.title && *now.title) || (now.artist && *now.artist) ||
+                               (now.album && *now.album);
+    if (!has_track) return;
+    const char *fields[5];
+    gboolean bold[5];
+    guint count = 0;
+    char *player_name = NULL;
+
+    if (get_bool_pref("show-title", TRUE) && now.title && *now.title) {
+        fields[count] = now.title; bold[count++] = TRUE;
+    }
+    if (get_bool_pref("show-artist", TRUE) && now.artist && *now.artist) {
+        fields[count] = now.artist; bold[count++] = FALSE;
+    }
+    if (get_bool_pref("show-album", TRUE) && now.album && *now.album) {
+        fields[count] = now.album; bold[count++] = FALSE;
+    }
+    if (get_bool_pref("show-status", FALSE) && now.status && *now.status) {
+        fields[count] = now.status; bold[count++] = FALSE;
+    }
+    if (get_bool_pref("show-player", FALSE) && now.player) {
+        player_name = player_display_name(now.player);
+        if (player_name && *player_name) { fields[count] = player_name; bold[count++] = FALSE; }
+    }
+    if (count == 0) { g_free(player_name); return; }
+
+    /* Small inset display integrated into the turntable's walnut front panel. */
+    cairo_save(cr);
+    cairo_scale(cr, sx, sy);
+    rounded_rect(cr, 470, 577, 423, 57, 5);
+    set_source(cr, .035, .055, .062, .96); cairo_fill_preserve(cr);
+    set_source(cr, .57, .40, .24, .84); cairo_set_line_width(cr, 1.0); cairo_stroke(cr);
+    set_source(cr, .91, .72, .48, .24); cairo_set_line_width(cr, .8);
+    cairo_move_to(cr, 478, 580); cairo_line_to(cr, 885, 580); cairo_stroke(cr);
+
+    const double first_y = count == 1 ? 612 : 590;
+    const double last_y = count == 1 ? 612 : 626;
+    for (guint i = 0; i < count; i++) {
+        double y = count == 1 ? first_y : first_y + (last_y-first_y)*i/(count-1);
+        double size = i == 0 && bold[i] ? 11.2 : (count > 3 ? 7.2 : 8.5);
+        double r = (i == 0 && bold[i]) ? .97 : .77;
+        double g = (i == 0 && bold[i]) ? .91 : .78;
+        double b = (i == 0 && bold[i]) ? .80 : .66;
+        fitted_centered_text(cr, fields[i], 682, y, 382, size, bold[i], r, g, b, .96);
+    }
+    cairo_restore(cr);
+    g_free(player_name);
+}
+
 void draw_scene(cairo_t *cr, int w, int h, double angle) {
     cairo_save(cr);
     const double scene_w = 1200;
-    const double scene_h = 800;
+    /* Match the virtual canvas to the monitor aspect before applying framing.
+       This preserves the complete top and bottom edges on widescreen displays. */
+    const double scene_h = scene_w * ((double)h / MAX(w, 1));
     const char *framing = get_pref("framing", "mid");
     double zoom = g_strcmp0(framing, "wide") == 0 ? .94 : g_strcmp0(framing, "close") == 0 ? 1.07 : 1.0;
     const double fit = MAX(w/scene_w, h/scene_h);
@@ -188,6 +250,7 @@ void draw_scene(cairo_t *cr, int w, int h, double angle) {
     draw_live_record(cr, scene_w, scene_h, angle);
     draw_stylus_contact(cr, scene_w, scene_h);
     draw_current_cover(cr, scene_w, scene_h);
+    draw_player_metadata(cr, scene_w, scene_h);
     cairo_restore(cr);
 }
 

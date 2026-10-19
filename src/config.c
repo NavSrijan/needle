@@ -83,6 +83,18 @@ void config_init(void) {
         g_key_file_set_boolean(prefs, "Needle", "launch-login", FALSE);
         save_prefs();
     }
+    const struct { const char *key; gboolean value; } display_defaults[] = {
+        {"show-title", TRUE}, {"show-artist", TRUE}, {"show-album", TRUE},
+        {"show-status", FALSE}, {"show-player", FALSE}
+    };
+    gboolean added_defaults = FALSE;
+    for (guint i = 0; i < G_N_ELEMENTS(display_defaults); i++) {
+        if (!g_key_file_has_key(prefs, "Needle", display_defaults[i].key, NULL)) {
+            g_key_file_set_boolean(prefs, "Needle", display_defaults[i].key, display_defaults[i].value);
+            added_defaults = TRUE;
+        }
+    }
+    if (added_defaults) save_prefs();
     gchar *dir = g_path_get_dirname(prefs_path);
     GFile *directory = g_file_new_for_path(dir);
     prefs_monitor = g_file_monitor_directory(directory, G_FILE_MONITOR_WATCH_MOVES, NULL, NULL);
