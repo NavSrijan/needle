@@ -13,6 +13,27 @@
 double spin_angle = 0;
 static gint64 last_spin_tick = 0;
 
+static void queue_scene_damage(GtkWidget *widget, double x, double y, double width, double height) {
+    GtkAllocation allocation;
+    gtk_widget_get_allocation(widget, &allocation);
+    if (allocation.width < 1 || allocation.height < 1) return;
+
+    const double scene_w = 1200.0;
+    const double scene_h = scene_w * ((double)allocation.height / allocation.width);
+    const char *framing = get_pref("framing", "mid");
+    const double zoom = g_strcmp0(framing, "wide") == 0 ? .94 :
+                        g_strcmp0(framing, "close") == 0 ? 1.07 : 1.0;
+    const double scale = MAX(allocation.width / scene_w, allocation.height / scene_h) * zoom;
+    const double offset_x = (allocation.width - scene_w * scale) * .5;
+    const double offset_y = (allocation.height - scene_h * scale) * .5;
+    const int left = MAX(0, (int)floor(offset_x + x * scale - 4));
+    const int top = MAX(0, (int)floor(offset_y + y * scale - 4));
+    const int right = MIN(allocation.width, (int)ceil(offset_x + (x + width) * scale + 4));
+    const int bottom = MIN(allocation.height, (int)ceil(offset_y + (y + height) * scale + 4));
+    if (right > left && bottom > top)
+        gtk_widget_queue_draw_area(widget, left, top, right - left, bottom - top);
+}
+
 static void set_source(cairo_t *cr, double r, double g, double b, double a) {
     cairo_set_source_rgba(cr, r, g, b, a);
 }
@@ -59,11 +80,7 @@ static void paint_cover_image(cairo_t *cr, GdkPixbuf *image, double x, double y,
     cairo_restore(cr);
 }
 
-static void draw_live_record(cairo_t *cr, int w, int h, double angle) {
-    /* Coordinates match the hand-drawn platter in scene.c. */
-    const double cx = w*.643, cy = h*.566, rx = w*.171, ry = h*.060;
-    cairo_save(cr);
-    cairo_translate(cr, cx, cy); cairo_scale(cr, 1, ry/rx);
+static void draw_record_base(cairo_t *cr, double scene_w, double rx) {
     cairo_pattern_t *vinyl = cairo_pattern_create_radial(-rx*.18, -rx*.2, rx*.025, 0, 0, rx);
     cairo_pattern_add_color_stop_rgb(vinyl, 0, .11, .11, .105);
     cairo_pattern_add_color_stop_rgb(vinyl, .42, .035, .036, .034);
@@ -74,20 +91,59 @@ static void draw_live_record(cairo_t *cr, int w, int h, double angle) {
     for (int i = 0; i < 53; i++) {
         const double r = rx*(.29 + i*.0128);
         set_source(cr, .66, .65, .60, (i % 5 == 0) ? .105 : .034);
-        cairo_set_line_width(cr, MAX(.45, w/3000.0));
+        cairo_set_line_width(cr, MAX(.45, scene_w/3000.0));
         cairo_arc(cr, 0, 0, r, 0, 2*G_PI); cairo_stroke(cr);
     }
-    cairo_save(cr); cairo_rotate(cr, angle);
-    cairo_arc(cr, 0, 0, rx*.77, -.22, .22); set_source(cr, .92, .87, .77, .20);
-    cairo_set_line_width(cr, rx*.018); cairo_stroke(cr);
-    cairo_restore(cr);
     cairo_pattern_t *label = cairo_pattern_create_radial(-rx*.03, -rx*.04, rx*.01, 0, 0, rx*.23);
     cairo_pattern_add_color_stop_rgb(label, 0, .70, .51, .31);
     cairo_pattern_add_color_stop_rgb(label, .72, .48, .32, .19);
     cairo_pattern_add_color_stop_rgb(label, 1, .24, .17, .11);
     cairo_arc(cr, 0, 0, rx*.23, 0, 2*G_PI); cairo_set_source(cr, label); cairo_fill(cr); cairo_pattern_destroy(label);
-    cairo_arc(cr, 0, 0, rx*.23, 0, 2*G_PI); cairo_set_line_width(cr, MAX(1, w/1400.0)); set_source(cr, .13, .095, .06, .68); cairo_stroke(cr);
-    cairo_arc(cr, 0, 0, rx*.985, 0, 2*G_PI); cairo_set_line_width(cr, MAX(1, w/1700.0)); set_source(cr, .76, .64, .46, .60); cairo_stroke(cr);
+    cairo_arc(cr, 0, 0, rx*.23, 0, 2*G_PI); cairo_set_line_width(cr, MAX(1, scene_w/1400.0)); set_source(cr, .13, .095, .06, .68); cairo_stroke(cr);
+    cairo_arc(cr, 0, 0, rx*.985, 0, 2*G_PI); cairo_set_line_width(cr, MAX(1, scene_w/1700.0)); set_source(cr, .76, .64, .46, .60); cairo_stroke(cr);
+}
+
+static void cache_static_platter(Wallpaper *wallpaper, double scene_w, double scene_h, double scale) {
+    if (!wallpaper || (wallpaper->static_platter && wallpaper->platter_cache_scale == scale &&
+        wallpaper->platter_cache_height == scene_h)) return;
+    if (wallpaper->static_platter) cairo_surface_destroy(wallpaper->static_platter);
+    const double rx = scene_w*.171, ry = scene_h*.060, margin = 2.0;
+    int pixel_w = MAX(1, (int)ceil((2*rx + 2*margin)*scale));
+    int pixel_h = MAX(1, (int)ceil((2*ry + 2*margin)*scale));
+    wallpaper->static_platter = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, pixel_w, pixel_h);
+    cairo_t *base = cairo_create(wallpaper->static_platter);
+    cairo_set_operator(base, CAIRO_OPERATOR_SOURCE);
+    cairo_set_source_rgba(base, 0, 0, 0, 0); cairo_paint(base);
+    cairo_set_operator(base, CAIRO_OPERATOR_OVER);
+    cairo_scale(base, scale, scale);
+    cairo_translate(base, rx + margin, ry + margin);
+    cairo_scale(base, 1, ry/rx);
+    draw_record_base(base, scene_w, rx);
+    cairo_destroy(base);
+    cairo_surface_flush(wallpaper->static_platter);
+    wallpaper->platter_cache_scale = scale;
+    wallpaper->platter_cache_height = scene_h;
+}
+
+static void draw_live_record(cairo_t *cr, double w, double h, double angle,
+                             Wallpaper *wallpaper, double scale) {
+    /* The record body and grooves do not move; only its soft highlight rotates. */
+    const double cx = w*.643, cy = h*.566, rx = w*.171, ry = h*.060, margin = 2.0;
+    if (wallpaper) {
+        cache_static_platter(wallpaper, w, h, scale);
+        cairo_save(cr);
+        cairo_translate(cr, cx-rx-margin, cy-ry-margin);
+        cairo_scale(cr, 1.0/scale, 1.0/scale);
+        cairo_set_source_surface(cr, wallpaper->static_platter, 0, 0);
+        cairo_paint(cr);
+        cairo_restore(cr);
+    } else {
+        cairo_save(cr); cairo_translate(cr, cx, cy); cairo_scale(cr, 1, ry/rx);
+        draw_record_base(cr, w, rx); cairo_restore(cr);
+    }
+    cairo_save(cr); cairo_translate(cr, cx, cy); cairo_scale(cr, 1, ry/rx); cairo_rotate(cr, angle);
+    cairo_arc(cr, 0, 0, rx*.77, -.22, .22); set_source(cr, .92, .87, .77, .20);
+    cairo_set_line_width(cr, rx*.018); cairo_stroke(cr);
     cairo_restore(cr);
 }
 
@@ -305,7 +361,8 @@ void draw_scene(cairo_t *cr, int w, int h, double angle, Wallpaper *wallpaper) {
         draw_player_metadata(cr, scene_w, scene_h, &transition_from, 1.0-transition);
     }
     draw_recent_covers(cr, scene_w, scene_h, player_recent_covers(), &now, transitioning ? transition : 1.0);
-    draw_live_record(cr, scene_w, scene_h, angle);
+    const double scene_scale = MAX(w/scene_w, h/scene_h) * zoom;
+    draw_live_record(cr, scene_w, scene_h, angle, wallpaper, scene_scale);
     draw_stylus_contact(cr, scene_w, scene_h);
     draw_current_cover(cr, scene_w, scene_h, &now, transitioning ? transition : 1.0);
     draw_player_metadata(cr, scene_w, scene_h, &now, transitioning ? transition : 1.0);
@@ -319,8 +376,8 @@ gboolean wallpaper_draw(GtkWidget *widget, cairo_t *cr, gpointer data) {
     return FALSE;
 }
 
-static gboolean tick_wallpaper_frame(GtkWidget *widget, GdkFrameClock *clock, gpointer unused) {
-    (void)unused;
+static gboolean tick_wallpaper_frame(GtkWidget *widget, GdkFrameClock *clock, gpointer data) {
+    Wallpaper *wallpaper = data;
     const gint64 frame_time = gdk_frame_clock_get_frame_time(clock);
     gboolean playing = g_strcmp0(now.status, "Playing") == 0;
     if (frame_time > last_spin_tick) {
@@ -329,7 +386,27 @@ static gboolean tick_wallpaper_frame(GtkWidget *widget, GdkFrameClock *clock, gp
         last_spin_tick = frame_time;
         if (playing) spin_angle = fmod(spin_angle + elapsed * (2.0 * G_PI * 33.333333 / 60.0), 2.0 * G_PI);
     }
-    if (playing || player_transition_active()) gtk_widget_queue_draw(widget);
+    gint64 refresh_interval = 0;
+    gdk_frame_clock_get_refresh_info(clock, frame_time, &refresh_interval, NULL);
+    if (refresh_interval <= 0) refresh_interval = 16667;
+    const gint64 target_interval = MAX(refresh_interval, 13889); /* At most 72 redraws per second. */
+    if (wallpaper && wallpaper->last_queued_frame_time > 0 &&
+        frame_time - wallpaper->last_queued_frame_time < target_interval)
+        return G_SOURCE_CONTINUE;
+    if (wallpaper) wallpaper->last_queued_frame_time = frame_time;
+    if (playing) {
+        GtkAllocation allocation;
+        gtk_widget_get_allocation(widget, &allocation);
+        const double scene_w = 1200.0;
+        const double scene_h = scene_w * ((double)allocation.height / MAX(allocation.width, 1));
+        const double cx = scene_w * .643, cy = scene_h * .566;
+        const double rx = scene_w * .171, ry = scene_h * .060;
+        queue_scene_damage(widget, cx-rx-3, cy-ry-3, 2*rx+6, 2*ry+6);
+    }
+    if (player_transition_active()) {
+        queue_scene_damage(widget, 370, 48, 575, 208);
+        queue_scene_damage(widget, 180, 548, 730, 205);
+    }
     return G_SOURCE_CONTINUE;
 }
 
@@ -337,6 +414,6 @@ void start_animation(void) {
     for (guint i = 0; i < wallpapers->len; i++) {
         Wallpaper *wp = g_ptr_array_index(wallpapers, i);
         if (wp->canvas && wp->frame_callback_id == 0)
-            wp->frame_callback_id = gtk_widget_add_tick_callback(wp->canvas, tick_wallpaper_frame, NULL, NULL);
+            wp->frame_callback_id = gtk_widget_add_tick_callback(wp->canvas, tick_wallpaper_frame, wp, NULL);
     }
 }

@@ -30,6 +30,7 @@ void update_visibility(void) {
 void wallpaper_free(gpointer data) {
     Wallpaper *wp = data;
     if (wp->static_scene) cairo_surface_destroy(wp->static_scene);
+    if (wp->static_platter) cairo_surface_destroy(wp->static_platter);
     g_free(wp);
 }
 

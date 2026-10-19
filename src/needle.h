@@ -14,8 +14,12 @@ typedef struct {
     GtkWidget *canvas;
     GdkMonitor *monitor;
     cairo_surface_t *static_scene;
+    cairo_surface_t *static_platter;
     double static_scene_zoom;
+    double platter_cache_scale;
+    double platter_cache_height;
     guint frame_callback_id;
+    gint64 last_queued_frame_time;
     int width, height;
 } Wallpaper;
 
