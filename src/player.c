@@ -19,9 +19,7 @@ typedef struct {
 GDBusConnection *bus;
 SoupSession *http_session;
 NowPlaying now = {0};
-NowPlaying transition_from = {0};
 static GPtrArray *recent_covers;
-static GPtrArray *transition_recent_covers;
 static gint64 transition_started_us;
 static gboolean transition_active;
 static GCancellable *active_artwork_cancellable;
@@ -38,8 +36,19 @@ static void recent_cover_free(gpointer data) {
 }
 
 static gboolean recent_cover_matches(const RecentCover *item, const NowPlaying *track) {
-    return g_strcmp0(item->title ? item->title : "", track->title ? track->title : "") == 0 &&
-           g_strcmp0(item->artist ? item->artist : "", track->artist ? track->artist : "") == 0;
+    const char *item_title = item->title ? item->title : "";
+    const char *track_title = track->title ? track->title : "";
+    const char *item_artist = item->artist ? item->artist : "";
+    const char *track_artist = track->artist ? track->artist : "";
+    if (*item_title && *track_title && g_strcmp0(item_title, track_title) == 0)
+        return !*item_artist || !*track_artist || g_strcmp0(item_artist, track_artist) == 0;
+    if ((!*item_title || !*track_title) && *item_artist && *track_artist &&
+        g_strcmp0(item_artist, track_artist) == 0) {
+        const char *item_album = item->album ? item->album : "";
+        const char *track_album = track->album ? track->album : "";
+        return !*item_album || !*track_album || g_strcmp0(item_album, track_album) == 0;
+    }
+    return FALSE;
 }
 
 static void remember_current_cover(void) {
@@ -64,38 +73,9 @@ static void remember_current_cover(void) {
 }
 
 const GPtrArray *player_recent_covers(void) { return recent_covers; }
-const GPtrArray *player_transition_recent_covers(void) { return transition_recent_covers; }
 gboolean player_transition_active(void) { return transition_active; }
 
-static void now_copy(NowPlaying *destination, const NowPlaying *source) {
-    destination->title = g_strdup(source->title);
-    destination->artist = g_strdup(source->artist);
-    destination->album = g_strdup(source->album);
-    destination->art_url = g_strdup(source->art_url);
-    destination->status = g_strdup(source->status);
-    destination->player = g_strdup(source->player);
-    destination->cover = source->cover ? g_object_ref(source->cover) : NULL;
-}
-
-static GPtrArray *copy_recent_covers(const GPtrArray *source) {
-    GPtrArray *copy = g_ptr_array_new_with_free_func(recent_cover_free);
-    for (guint i = 0; source && i < source->len; i++) {
-        const RecentCover *item = g_ptr_array_index((GPtrArray *)source, i);
-        RecentCover *duplicate = g_new0(RecentCover, 1);
-        duplicate->title = g_strdup(item->title);
-        duplicate->artist = g_strdup(item->artist);
-        duplicate->album = g_strdup(item->album);
-        duplicate->cover = item->cover ? g_object_ref(item->cover) : NULL;
-        g_ptr_array_add(copy, duplicate);
-    }
-    return copy;
-}
-
 static void start_track_transition(void) {
-    now_clear(&transition_from);
-    now_copy(&transition_from, &now);
-    g_clear_pointer(&transition_recent_covers, g_ptr_array_unref);
-    transition_recent_covers = copy_recent_covers(recent_covers);
     transition_started_us = g_get_monotonic_time();
     transition_active = TRUE;
 }
@@ -105,8 +85,6 @@ double player_transition_progress(void) {
     double t = (g_get_monotonic_time() - transition_started_us) / 650000.0;
     if (t >= 1.0) {
         transition_active = FALSE;
-        now_clear(&transition_from);
-        g_clear_pointer(&transition_recent_covers, g_ptr_array_unref);
         return 1.0;
     }
     t = CLAMP(t, 0.0, 1.0);
@@ -250,8 +228,10 @@ static gboolean poll_mpris(gpointer unused) {
         g_strcmp0(candidate.status, now.status) || g_strcmp0(candidate.player, now.player);
     if (changed) {
         gboolean track_changed = g_strcmp0(candidate.title, now.title) ||
-            g_strcmp0(candidate.artist, now.artist) || g_strcmp0(candidate.album, now.album) ||
-            g_strcmp0(candidate.player, now.player);
+            g_strcmp0(candidate.artist, now.artist) || g_strcmp0(candidate.player, now.player) ||
+            ((!candidate.title || !*candidate.title) && (!now.title || !*now.title) &&
+             (!candidate.artist || !*candidate.artist) && (!now.artist || !*now.artist) &&
+             g_strcmp0(candidate.album, now.album));
         if (track_changed) start_track_transition();
         const gboolean same_art = g_strcmp0(candidate.art_url, now.art_url) == 0;
         GdkPixbuf *previous_cover = same_art && now.cover ? g_object_ref(now.cover) : NULL;
@@ -277,8 +257,6 @@ void player_shutdown(void) {
     if (active_artwork_cancellable) g_cancellable_cancel(active_artwork_cancellable);
     g_clear_object(&active_artwork_cancellable);
     now_clear(&now);
-    now_clear(&transition_from);
-    g_clear_pointer(&transition_recent_covers, g_ptr_array_unref);
     g_clear_pointer(&recent_covers, g_ptr_array_unref);
     g_clear_object(&bus);
     g_clear_object(&http_session);

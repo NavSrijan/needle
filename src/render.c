@@ -180,9 +180,14 @@ static void draw_recent_covers(cairo_t *cr, double scene_w, double scene_h,
         RecentCover *item = g_ptr_array_index((GPtrArray *)recent, i);
         if (!item) continue;
         /* The current track is already on the table sleeve; the wall shows history. */
-        if ((current->title || current->artist) &&
-            g_strcmp0(item->title ? item->title : "", current->title ? current->title : "") == 0 &&
-            g_strcmp0(item->artist ? item->artist : "", current->artist ? current->artist : "") == 0) continue;
+        const char *item_title = item->title ? item->title : "";
+        const char *current_title = current->title ? current->title : "";
+        const char *item_artist = item->artist ? item->artist : "";
+        const char *current_artist = current->artist ? current->artist : "";
+        const gboolean same_title = *item_title && *current_title && g_strcmp0(item_title, current_title) == 0;
+        const gboolean same_artist = *item_artist && *current_artist && g_strcmp0(item_artist, current_artist) == 0;
+        if (same_title && (!*item_artist || !*current_artist || same_artist)) continue;
+        if (!*item_title && !*current_title && same_artist) continue;
         /* Empty gallery frames are less useful than showing only tracks with real artwork. */
         if (!item->cover) continue;
         const guint slot = shown++;
@@ -355,12 +360,7 @@ void draw_scene(cairo_t *cr, int w, int h, double angle, Wallpaper *wallpaper) {
         }
     }
     cairo_save(cr); set_scene_transform(cr, w, h, scene_w, scene_h, zoom);
-    if (transitioning) {
-        draw_recent_covers(cr, scene_w, scene_h, player_transition_recent_covers(), &transition_from, 1.0-transition);
-        draw_current_cover(cr, scene_w, scene_h, &transition_from, 1.0-transition);
-        draw_player_metadata(cr, scene_w, scene_h, &transition_from, 1.0-transition);
-    }
-    draw_recent_covers(cr, scene_w, scene_h, player_recent_covers(), &now, transitioning ? transition : 1.0);
+    draw_recent_covers(cr, scene_w, scene_h, player_recent_covers(), &now, 1.0);
     const double scene_scale = MAX(w/scene_w, h/scene_h) * zoom;
     draw_live_record(cr, scene_w, scene_h, angle, wallpaper, scene_scale);
     draw_stylus_contact(cr, scene_w, scene_h);
