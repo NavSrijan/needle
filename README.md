@@ -29,9 +29,9 @@ launch-login=false
 ```
 
 - `framing`: `wide`, `mid`, or `close`.
-- `transparent-background`: set to `true` to show only the record and sleeve over the desktop.
-- `show-art`: show the current album cover on the desk.
-- `show-caption`: show track and artist details.
+- `transparent-background`: set to `true` to float the record, recent covers, and current sleeve over the desktop.
+- `show-art`: show recent covers in the wall frames and the current sleeve on its stand.
+- `show-caption`: show the current track title on the sleeve stand's small label.
 - `hide-paused`: hide the scene when the player is not playing.
 - `launch-login`: create or remove the per-user XDG autostart entry.
 
@@ -40,6 +40,8 @@ launch-login=false
 Wayland layer-shell is the priority and targets compositors such as Hyprland and Niri that expose `zwlr_layer_shell_v1`. GNOME Wayland is not supported in this v0. X11 uses a desktop-window fallback; placement depends on the desktop environment.
 
 The wallpaper surface is non-interactive so desktop icons and pointer actions pass through it. MPRIS artwork may come from a local file or HTTP(S) URL; remote fetches are asynchronous, time out after eight seconds, and are limited to 12 MiB.
+
+The three wall frames show the current cover and the two most recently played covers observed during the current Needle session.
 
 ## macOS
 

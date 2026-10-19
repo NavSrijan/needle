@@ -129,30 +129,67 @@ static void draw_live_record(cairo_t *cr, int w, int h, double angle) {
     cairo_restore(cr);
 }
 
-static void draw_now_playing(cairo_t *cr, int w, int h, double s) {
-    if (!get_bool_pref("show-caption", TRUE)) return;
-    double x = w * .18, y = h * .075, pw = 350*s, ph = 76*s;
-    rounded_rect(cr, x, y, pw, ph, 10*s); set_source(cr, .055, .052, .047, .78); cairo_fill(cr);
-    rounded_rect(cr, x, y, pw, ph, 10*s); cairo_set_line_width(cr, 1*s); set_source(cr, 1, .91, .76, .19); cairo_stroke(cr);
-    double art = 56*s, ax = x + 11*s, ay = y + 10*s;
-    rounded_rect(cr, ax, ay, art, art, 4*s); cairo_save(cr); cairo_clip(cr);
-    if (now.cover) paint_cover_image(cr, now.cover, ax, ay, art, art);
-    else {
-        cairo_pattern_t *p = cairo_pattern_create_linear(ax, ay, ax + art, ay + art);
-        cairo_pattern_add_color_stop_rgb(p, 0, .55, .35, .23); cairo_pattern_add_color_stop_rgb(p, 1, .17, .22, .20);
-        cairo_rectangle(cr, ax, ay, art, art); cairo_set_source(cr, p); cairo_fill(cr); cairo_pattern_destroy(p);
-        centered_text(cr, "33⅓", ax + art/2, ay + art*.56, 11*s, "Serif", .96, .84, .62, .95);
-    }
+static void draw_stylus_contact(cairo_t *cr, double scene_w, double scene_h) {
+    /* The photo's arm is hidden where the spinning record covers it. Continue it over the vinyl. */
+    const double start_x = scene_w*.784, start_y = scene_h*.535;
+    const double head_x = scene_w*.738, head_y = scene_h*.554;
+    const double tip_x = scene_w*.732, tip_y = scene_h*.588;
+    double angle = atan2(head_y - start_y, head_x - start_x);
+    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+    cairo_move_to(cr, start_x, start_y); cairo_line_to(cr, head_x, head_y);
+    set_source(cr, .72, .67, .58, .96); cairo_set_line_width(cr, scene_w*.004); cairo_stroke(cr);
+    cairo_move_to(cr, start_x, start_y); cairo_line_to(cr, head_x, head_y);
+    set_source(cr, 1, .94, .81, .86); cairo_set_line_width(cr, scene_w*.0014); cairo_stroke(cr);
+    cairo_save(cr); cairo_translate(cr, head_x, head_y); cairo_rotate(cr, angle);
+    rounded_rect(cr, -scene_w*.010, -scene_h*.006, scene_w*.021, scene_h*.013, scene_w*.0025);
+    set_source(cr, .12, .105, .088, 1); cairo_fill(cr);
     cairo_restore(cr);
-    double tx = x + 79*s;
-    cairo_arc(cr, tx + 3*s, y + 18*s, 3*s, 0, 2*G_PI); set_source(cr, .73, .86, .63, .96); cairo_fill(cr);
-    text(cr, "NOW SPINNING", tx + 12*s, y + 21*s, 7*s, "Sans", CAIRO_FONT_WEIGHT_BOLD, .75, .71, .64, .96);
-    char *title = g_strdup(now.title && *now.title ? now.title : "Needle is ready");
-    if (strlen(title) > 31) title[31] = 0;
-    text(cr, title, tx, y + 43*s, 14*s, "Serif", CAIRO_FONT_WEIGHT_BOLD, .98, .93, .84, .98); g_free(title);
-    char *byline = g_strdup_printf("%s%s%s", now.artist && *now.artist ? now.artist : "Start a player", (now.album && *now.album) ? "  ·  " : "", now.album && *now.album ? now.album : "");
-    if (strlen(byline) > 46) byline[46] = 0;
-    text(cr, byline, tx, y + 59*s, 8*s, "Sans", CAIRO_FONT_WEIGHT_NORMAL, .77, .73, .67, .97); g_free(byline);
+    cairo_move_to(cr, head_x, head_y + scene_h*.005);
+    cairo_line_to(cr, tip_x, tip_y);
+    set_source(cr, .91, .83, .67, .98); cairo_set_line_width(cr, MAX(.8, scene_w*.00065)); cairo_stroke(cr);
+    cairo_arc(cr, tip_x, tip_y, MAX(1.1, scene_w*.0008), 0, 2*G_PI);
+    set_source(cr, .97, .89, .72, 1); cairo_fill(cr);
+}
+
+static void draw_recent_covers(cairo_t *cr, double scene_w, double scene_h) {
+    const GPtrArray *recent = player_recent_covers();
+    if (!get_bool_pref("show-art", TRUE) || !recent) return;
+    const double centers[] = {scene_w*.452, scene_w*.656, scene_w*.860};
+    const double side = scene_h*.153;
+    for (guint i = 0; i < G_N_ELEMENTS(centers) && i < recent->len; i++) {
+        RecentCover *item = g_ptr_array_index((GPtrArray *)recent, i);
+        if (!item || !item->cover) continue;
+        double x = centers[i] - side*.5, y = scene_h*.047;
+        cairo_save(cr);
+        cairo_rectangle(cr, x, y, side, side); cairo_clip(cr);
+        paint_cover_image(cr, item->cover, x, y, side, side);
+        cairo_restore(cr);
+    }
+}
+
+static void draw_cover_stand(cairo_t *cr, double x, double y, double size) {
+    /* Walnut easel and a shallow shelf sit behind the jacket. */
+    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+    set_source(cr, .16, .075, .032, .95); cairo_set_line_width(cr, size*.032);
+    cairo_move_to(cr, x + size*.12, y + size*.82); cairo_line_to(cr, x + size*.035, y + size*1.08); cairo_stroke(cr);
+    cairo_move_to(cr, x + size*.88, y + size*.82); cairo_line_to(cr, x + size*.965, y + size*1.08); cairo_stroke(cr);
+    set_source(cr, .30, .15, .065, .98);
+    rounded_rect(cr, x - size*.045, y + size*.985, size*1.09, size*.075, size*.018); cairo_fill(cr);
+    set_source(cr, .67, .41, .18, .72); cairo_set_line_width(cr, MAX(.7, size*.006));
+    cairo_move_to(cr, x - size*.025, y + size*1.005); cairo_line_to(cr, x + size*1.025, y + size*1.005); cairo_stroke(cr);
+}
+
+static void draw_current_sleeve(cairo_t *cr, double x, double y, double size) {
+    if (!get_bool_pref("show-art", TRUE)) return;
+    draw_cover_stand(cr, x, y, size);
+    draw_sleeve(cr, x, y, size);
+    if (get_bool_pref("show-caption", TRUE) && now.title && *now.title) {
+        char *title = g_strdup(now.title);
+        if (strlen(title) > 25) title[25] = 0;
+        centered_text(cr, title, x + size*.5, y + size*1.039, size*.040,
+            "Sans", .91, .78, .56, .96);
+        g_free(title);
+    }
 }
 
 void draw_scene(cairo_t *cr, int w, int h, double angle) {
@@ -165,11 +202,11 @@ void draw_scene(cairo_t *cr, int w, int h, double angle) {
     cairo_translate(cr, w*.5, h*.5); cairo_scale(cr, fit*zoom, fit*zoom);
     cairo_translate(cr, -scene_w*.5, -scene_h*.5);
     if (!get_bool_pref("transparent-background", FALSE)) draw_background(cr, scene_w, scene_h);
+    draw_recent_covers(cr, scene_w, scene_h);
     draw_live_record(cr, scene_w, scene_h, angle);
+    draw_stylus_contact(cr, scene_w, scene_h);
     double sleeve_size = scene_w*.105;
-    draw_sleeve(cr, scene_w*.265, scene_h*.64, sleeve_size);
-    double ui_scale = MIN(scene_w/1920.0, scene_h/1080.0);
-    draw_now_playing(cr, scene_w, scene_h, ui_scale);
+    draw_current_sleeve(cr, scene_w*.265, scene_h*.61, sleeve_size);
     cairo_restore(cr);
 }
 

@@ -19,6 +19,40 @@ typedef struct {
 GDBusConnection *bus;
 SoupSession *http_session;
 NowPlaying now = {0};
+static GPtrArray *recent_covers;
+
+static void recent_cover_free(gpointer data) {
+    RecentCover *item = data;
+    g_free(item->key);
+    g_clear_object(&item->cover);
+    g_free(item);
+}
+
+static gchar *now_key(void) {
+    return g_strdup_printf("%s\n%s\n%s", now.title ? now.title : "",
+        now.artist ? now.artist : "", now.album ? now.album : "");
+}
+
+static void remember_current_cover(void) {
+    if (!recent_covers || (!now.title && !now.artist && !now.album)) return;
+    gchar *key = now_key();
+    GdkPixbuf *cover = now.cover ? g_object_ref(now.cover) : NULL;
+    for (guint i = 0; i < recent_covers->len; i++) {
+        RecentCover *old = g_ptr_array_index(recent_covers, i);
+        if (g_strcmp0(old->key, key) == 0) {
+            if (!cover && old->cover) cover = g_object_ref(old->cover);
+            g_ptr_array_remove_index(recent_covers, i);
+            break;
+        }
+    }
+    RecentCover *item = g_new0(RecentCover, 1);
+    item->key = key;
+    item->cover = cover;
+    g_ptr_array_insert(recent_covers, 0, item);
+    while (recent_covers->len > 3) g_ptr_array_remove_index(recent_covers, recent_covers->len - 1);
+}
+
+const GPtrArray *player_recent_covers(void) { return recent_covers; }
 
 static char *variant_string(GVariant *dict, const char *key) {
     const char *value = NULL;
@@ -91,6 +125,7 @@ static void cover_downloaded(GObject *source, GAsyncResult *result, gpointer dat
     if (g_strcmp0(now.art_url, request->url) == 0 && pixbuf) {
         g_clear_object(&now.cover);
         now.cover = pixbuf;
+        remember_current_cover();
         for (guint i = 0; i < wallpapers->len; i++) refresh_wallpaper(g_ptr_array_index(wallpapers, i));
     } else g_clear_object(&pixbuf);
     if (error) g_error_free(error);
@@ -149,7 +184,12 @@ static gboolean poll_mpris(gpointer unused) {
         g_strcmp0(candidate.album, now.album) || g_strcmp0(candidate.art_url, now.art_url) ||
         g_strcmp0(candidate.status, now.status) || g_strcmp0(candidate.player, now.player);
     if (changed) {
-        now_clear(&now); now = candidate; refresh_art();
+        const gboolean same_art = g_strcmp0(candidate.art_url, now.art_url) == 0;
+        GdkPixbuf *previous_cover = same_art && now.cover ? g_object_ref(now.cover) : NULL;
+        now_clear(&now); now = candidate;
+        if (previous_cover) now.cover = previous_cover;
+        else refresh_art();
+        remember_current_cover();
         for (guint i = 0; i < wallpapers->len; i++) refresh_wallpaper(g_ptr_array_index(wallpapers, i));
         update_visibility();
     } else now_clear(&candidate);
@@ -157,6 +197,7 @@ static gboolean poll_mpris(gpointer unused) {
 }
 
 void player_init(void) {
+    recent_covers = g_ptr_array_new_with_free_func(recent_cover_free);
     bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
     http_session = soup_session_new();
     g_object_set(http_session, "timeout", 8u, "user-agent", "Needle/0.1", NULL);
@@ -165,6 +206,7 @@ void player_init(void) {
 
 void player_shutdown(void) {
     now_clear(&now);
+    g_clear_pointer(&recent_covers, g_ptr_array_unref);
     g_clear_object(&bus);
     g_clear_object(&http_session);
 }

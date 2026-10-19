@@ -22,6 +22,11 @@ typedef struct {
     GdkPixbuf *cover;
 } NowPlaying;
 
+typedef struct {
+    gchar *key;
+    GdkPixbuf *cover;
+} RecentCover;
+
 extern GtkApplication *app;
 extern GPtrArray *wallpapers;
 extern GKeyFile *prefs;
@@ -48,3 +53,4 @@ void update_visibility(void);
 void start_wallpaper(void);
 void player_init(void);
 void player_shutdown(void);
+const GPtrArray *player_recent_covers(void);
