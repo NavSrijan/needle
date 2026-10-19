@@ -23,6 +23,10 @@ Install to `/usr/local` with `sudo make install`.
 
 Needle creates one wallpaper window per monitor. The window does not take pointer input, so desktop icons remain usable. Track artwork and metadata update immediately when the player changes tracks. Three previous tracks appear in the wall frames during each session.
 
+## Planned
+
+User-made and community-contributed scenes are planned for the near future if there is interest.
+
 ## Settings
 
 Edit `~/.config/needle/config.ini`; Needle creates the file on first launch and applies edits immediately. There is no settings window.
