@@ -20,8 +20,6 @@ GDBusConnection *bus;
 SoupSession *http_session;
 NowPlaying now = {0};
 static GPtrArray *recent_covers;
-static gint64 transition_started_us;
-static gboolean transition_active;
 static GCancellable *active_artwork_cancellable;
 
 static void now_clear(NowPlaying *item);
@@ -73,23 +71,6 @@ static void remember_current_cover(void) {
 }
 
 const GPtrArray *player_recent_covers(void) { return recent_covers; }
-gboolean player_transition_active(void) { return transition_active; }
-
-static void start_track_transition(void) {
-    transition_started_us = g_get_monotonic_time();
-    transition_active = TRUE;
-}
-
-double player_transition_progress(void) {
-    if (!transition_active) return 1.0;
-    double t = (g_get_monotonic_time() - transition_started_us) / 650000.0;
-    if (t >= 1.0) {
-        transition_active = FALSE;
-        return 1.0;
-    }
-    t = CLAMP(t, 0.0, 1.0);
-    return t * t * (3.0 - 2.0 * t);
-}
 
 static char *variant_string(GVariant *dict, const char *key) {
     const char *value = NULL;
@@ -227,12 +208,6 @@ static gboolean poll_mpris(gpointer unused) {
         g_strcmp0(candidate.album, now.album) || g_strcmp0(candidate.art_url, now.art_url) ||
         g_strcmp0(candidate.status, now.status) || g_strcmp0(candidate.player, now.player);
     if (changed) {
-        gboolean track_changed = g_strcmp0(candidate.title, now.title) ||
-            g_strcmp0(candidate.artist, now.artist) || g_strcmp0(candidate.player, now.player) ||
-            ((!candidate.title || !*candidate.title) && (!now.title || !*now.title) &&
-             (!candidate.artist || !*candidate.artist) && (!now.artist || !*now.artist) &&
-             g_strcmp0(candidate.album, now.album));
-        if (track_changed) start_track_transition();
         const gboolean same_art = g_strcmp0(candidate.art_url, now.art_url) == 0;
         GdkPixbuf *previous_cover = same_art && now.cover ? g_object_ref(now.cover) : NULL;
         now_clear(&now); now = candidate;

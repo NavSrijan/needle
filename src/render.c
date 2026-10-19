@@ -323,8 +323,6 @@ void draw_scene(cairo_t *cr, int w, int h, double angle, Wallpaper *wallpaper) {
     const double scene_h = scene_w * ((double)h / MAX(w, 1));
     const char *framing = get_pref("framing", "mid");
     double zoom = g_strcmp0(framing, "wide") == 0 ? .94 : g_strcmp0(framing, "close") == 0 ? 1.07 : 1.0;
-    double transition = player_transition_progress();
-    gboolean transitioning = player_transition_active();
     if (!get_bool_pref("transparent-background", FALSE)) {
         if (wallpaper) {
             cache_static_scene(wallpaper, w, h, scene_w, scene_h, zoom);
@@ -344,8 +342,11 @@ void draw_scene(cairo_t *cr, int w, int h, double angle, Wallpaper *wallpaper) {
     draw_recent_covers(cr, scene_w, scene_h, player_recent_covers(), &now, 1.0);
     const double scene_scale = MAX(w/scene_w, h/scene_h) * zoom;
     draw_live_record(cr, scene_w, scene_h, angle, wallpaper, scene_scale);
-    draw_current_cover(cr, scene_w, scene_h, &now, transitioning ? transition : 1.0);
-    draw_player_metadata(cr, scene_w, scene_h, &now, transitioning ? transition : 1.0);
+    /* The cached scene has the tonearm beneath the moving platter. Redraw the
+       same arm above the platter so the stylus stays visibly in contact. */
+    draw_turntable_tonearm(cr, scene_h / 800.0);
+    draw_current_cover(cr, scene_w, scene_h, &now, 1.0);
+    draw_player_metadata(cr, scene_w, scene_h, &now, 1.0);
     cairo_restore(cr);
     cairo_restore(cr);
 }
@@ -387,10 +388,6 @@ static gboolean tick_wallpaper_frame(GtkWidget *widget, GdkFrameClock *clock, gp
         const double cx = scene_w * .643, cy = scene_h * .566;
         const double rx = scene_w * .171, ry = scene_h * .060;
         queue_scene_damage(widget, cx-rx-3, cy-ry-3, 2*rx+6, 2*ry+6);
-    }
-    if (player_transition_active()) {
-        queue_scene_damage(widget, 370, 48, 575, 208);
-        queue_scene_damage(widget, 180, 548, 730, 205);
     }
     return G_SOURCE_CONTINUE;
 }

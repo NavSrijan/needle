@@ -384,6 +384,39 @@ static void draw_sideboard_and_lamp(cairo_t *c) {
     segment(c,1021,326,1169,326,1.5,0xffdfa4,.40);
 }
 
+void draw_turntable_tonearm(cairo_t *c, double y_scale) {
+    cairo_save(c);
+    cairo_scale(c, 1.0, y_scale);
+    oval(c,1043,414,35,15,0x080d11,.88);
+    oval(c,1043,405,29,19,0xb1a994,1);
+    oval(c,1043,400,23,13,0x5c6262,1);
+    oval(c,1043,399,15,8,0xd2c4a6,1);
+    oval_ring(c,1043,402,26,15,.085,0xf3daba,.28);
+    cairo_set_line_cap(c,CAIRO_LINE_CAP_ROUND);
+    segment(c,1044,405,1104,391,8,0x252c2e,1);
+    segment(c,1091,392,1116,387,22,0x636969,1);
+    segment(c,1091,390,1116,386,5,0xccbca0,.55);
+    cairo_move_to(c,1042,408);
+    cairo_curve_to(c,1039,419,1005,423,982,430);
+    cairo_curve_to(c,963,434,948,438,941,442);
+    ink(c,0x151b1d,.78);cairo_set_line_width(c,11);cairo_stroke(c);
+    cairo_move_to(c,1042,405);
+    cairo_curve_to(c,1038,416,1005,420,982,427);
+    cairo_curve_to(c,965,432,950,436,942,439);
+    ink(c,0xc0b39a,1);cairo_set_line_width(c,6);cairo_stroke(c);
+    cairo_move_to(c,1041,403);
+    cairo_curve_to(c,1038,413,1005,418,982,425);
+    cairo_curve_to(c,966,430,952,433,942,437);
+    ink(c,0xf7e6bc,.50);cairo_set_line_width(c,1.4);cairo_stroke(c);
+    oval(c,946,446,26,6,0x000000,.12);
+    cairo_save(c);cairo_translate(c,942,441);cairo_rotate(c,-.22);
+    round_box(c,-11,-5,23,11,2,0x252f34,1);
+    box(c,-9,-3,14,3,0xf0cda1,.72);
+    segment(c,-4,6,-3,11,1.4,0xddd2bb,.78);
+    cairo_restore(c);
+    cairo_restore(c);
+}
+
 static void draw_turntable(cairo_t *c) {
     const double cx=771.6,cy=452.8,rx=205.2,ry=48.0;
     oval(c,823,667,397,32,0x101618,.31);
@@ -450,33 +483,7 @@ static void draw_turntable(cairo_t *c) {
     oval(c,1135,524,7,3,0x493e34,1);
     oval(c,1037,529,4,2,0x89d6a9,1);
     radial_glow(c,1037,528,27,0x80e0a2,.20);
-    oval(c,1043,414,35,15,0x080d11,.88);
-    oval(c,1043,405,29,19,0xb1a994,1);
-    oval(c,1043,400,23,13,0x5c6262,1);
-    oval(c,1043,399,15,8,0xd2c4a6,1);
-    oval_ring(c,1043,402,26,15,.085,0xf3daba,.28);
-    cairo_set_line_cap(c,CAIRO_LINE_CAP_ROUND);
-    segment(c,1044,405,1104,391,8,0x252c2e,1);
-    segment(c,1091,392,1116,387,22,0x636969,1);
-    segment(c,1091,390,1116,386,5,0xccbca0,.55);
-    cairo_move_to(c,1042,408);
-    cairo_curve_to(c,1039,419,1005,423,982,430);
-    cairo_curve_to(c,963,434,948,438,941,442);
-    ink(c,0x151b1d,.78);cairo_set_line_width(c,11);cairo_stroke(c);
-    cairo_move_to(c,1042,405);
-    cairo_curve_to(c,1038,416,1005,420,982,427);
-    cairo_curve_to(c,965,432,950,436,942,439);
-    ink(c,0xc0b39a,1);cairo_set_line_width(c,6);cairo_stroke(c);
-    cairo_move_to(c,1041,403);
-    cairo_curve_to(c,1038,413,1005,418,982,425);
-    cairo_curve_to(c,966,430,952,433,942,437);
-    ink(c,0xf7e6bc,.50);cairo_set_line_width(c,1.4);cairo_stroke(c);
-    oval(c,946,446,26,6,0x000000,.12);
-    cairo_save(c);cairo_translate(c,942,441);cairo_rotate(c,-.22);
-    round_box(c,-11,-5,23,11,2,0x252f34,1);
-    box(c,-9,-3,14,3,0xf0cda1,.72);
-    segment(c,-4,6,-3,11,1.4,0xddd2bb,.78);
-    cairo_restore(c);
+    draw_turntable_tonearm(c, 1.0);
     segment(c,429,571,1175,571,1.3,0xf1bd81,.38);
     segment(c,432,640,1176,640,1.5,0x191719,.56);
     box(c,913,589,1,45,0xd9a36d,.35);
