@@ -64,6 +64,9 @@ static void fitted_centered_text(cairo_t *cr, const char *value, double cx, doub
     set_source(cr, r, g, b, a);
     cairo_move_to(cr, -ext.width / 2.0, 0);
     cairo_show_text(cr, value);
+    /* Cairo save/restore does not include the current path. Prevent this text
+       anchor from being joined to the next stroked arc or line. */
+    cairo_new_path(cr);
     cairo_restore(cr);
 }
 
