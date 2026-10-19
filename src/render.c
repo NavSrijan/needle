@@ -58,23 +58,6 @@ static void paint_cover_image(cairo_t *cr, GdkPixbuf *image, double x, double y,
     cairo_restore(cr);
 }
 
-static void draw_background(cairo_t *cr, int w, int h) {
-    GdkPixbuf *background = integrated_scene;
-    if (background) {
-        gdk_cairo_set_source_pixbuf(cr, background, 0, 0);
-        cairo_paint(cr);
-        return;
-    }
-    cairo_pattern_t *wall = cairo_pattern_create_linear(0, 0, 0, h * .61);
-    cairo_pattern_add_color_stop_rgb(wall, 0, .10, .09, .08);
-    cairo_pattern_add_color_stop_rgb(wall, 1, .25, .18, .13);
-    cairo_rectangle(cr, 0, 0, w, h * .61); cairo_set_source(cr, wall); cairo_fill(cr); cairo_pattern_destroy(wall);
-    cairo_pattern_t *desk = cairo_pattern_create_linear(0, h * .60, 0, h);
-    cairo_pattern_add_color_stop_rgb(desk, 0, .44, .29, .17);
-    cairo_pattern_add_color_stop_rgb(desk, 1, .18, .10, .06);
-    cairo_rectangle(cr, 0, h * .60, w, h * .40); cairo_set_source(cr, desk); cairo_fill(cr); cairo_pattern_destroy(desk);
-}
-
 static void draw_sleeve(cairo_t *cr, double x, double y, double size) {
     if (!get_bool_pref("show-art", TRUE)) return;
     set_source(cr, .035, .025, .018, .42); rounded_rect(cr, x + size*.035, y + size*.055, size, size, size*.012); cairo_fill(cr);
@@ -97,7 +80,7 @@ static void draw_sleeve(cairo_t *cr, double x, double y, double size) {
 }
 
 static void draw_live_record(cairo_t *cr, int w, int h, double angle) {
-    /* Coordinates match the platter in assets/listening-room.png. */
+    /* Coordinates match the hand-drawn platter in scene.c. */
     const double cx = w*.643, cy = h*.566, rx = w*.171, ry = h*.060;
     cairo_save(cr);
     cairo_translate(cr, cx, cy); cairo_scale(cr, 1, ry/rx);
@@ -130,7 +113,7 @@ static void draw_live_record(cairo_t *cr, int w, int h, double angle) {
 }
 
 static void draw_stylus_contact(cairo_t *cr, double scene_w, double scene_h) {
-    /* The photo's arm is hidden where the spinning record covers it. Continue it over the vinyl. */
+    /* Continue the hand-drawn tonearm over the record so the stylus visibly lands on it. */
     const double start_x = scene_w*.784, start_y = scene_h*.535;
     const double head_x = scene_w*.738, head_y = scene_h*.554;
     const double tip_x = scene_w*.732, tip_y = scene_h*.588;
@@ -194,14 +177,14 @@ static void draw_current_sleeve(cairo_t *cr, double x, double y, double size) {
 
 void draw_scene(cairo_t *cr, int w, int h, double angle) {
     cairo_save(cr);
-    const double scene_w = integrated_scene ? gdk_pixbuf_get_width(integrated_scene) : 1920;
-    const double scene_h = integrated_scene ? gdk_pixbuf_get_height(integrated_scene) : 1080;
+    const double scene_w = 1920;
+    const double scene_h = 1080;
     const char *framing = get_pref("framing", "mid");
     double zoom = g_strcmp0(framing, "wide") == 0 ? .94 : g_strcmp0(framing, "close") == 0 ? 1.07 : 1.0;
     const double fit = MAX(w/scene_w, h/scene_h);
     cairo_translate(cr, w*.5, h*.5); cairo_scale(cr, fit*zoom, fit*zoom);
     cairo_translate(cr, -scene_w*.5, -scene_h*.5);
-    if (!get_bool_pref("transparent-background", FALSE)) draw_background(cr, scene_w, scene_h);
+    if (!get_bool_pref("transparent-background", FALSE)) draw_programmatic_scene(cr, scene_w, scene_h);
     draw_recent_covers(cr, scene_w, scene_h);
     draw_live_record(cr, scene_w, scene_h, angle);
     draw_stylus_contact(cr, scene_w, scene_h);

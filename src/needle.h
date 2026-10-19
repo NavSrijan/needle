@@ -36,15 +36,14 @@ extern GDBusConnection *bus;
 extern SoupSession *http_session;
 extern NowPlaying now;
 extern gboolean wallpaper_started;
-extern GdkPixbuf *integrated_scene;
 extern double spin_angle;
 
 const char *get_pref(const char *key, const char *fallback);
 gboolean get_bool_pref(const char *key, gboolean fallback);
 void config_init(void);
 void ensure_autostart(void);
-void load_visual_assets(void);
 void wallpaper_free(gpointer data);
+void draw_programmatic_scene(cairo_t *cr, double w, double h);
 void draw_scene(cairo_t *cr, int w, int h, double angle);
 gboolean wallpaper_draw(GtkWidget *widget, cairo_t *cr, gpointer data);
 void start_animation(void);
