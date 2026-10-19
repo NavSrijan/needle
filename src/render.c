@@ -47,7 +47,8 @@ static void fitted_centered_text(cairo_t *cr, const char *value, double cx, doub
     cairo_restore(cr);
 }
 
-static void paint_cover_image(cairo_t *cr, GdkPixbuf *image, double x, double y, double w, double h) {
+static void paint_cover_image(cairo_t *cr, GdkPixbuf *image, double x, double y, double w, double h,
+                              double opacity) {
     double iw = gdk_pixbuf_get_width(image), ih = gdk_pixbuf_get_height(image);
     double scale = MAX(w / iw, h / ih);
     double dx = x + (w - iw * scale) / 2.0;
@@ -55,7 +56,7 @@ static void paint_cover_image(cairo_t *cr, GdkPixbuf *image, double x, double y,
     cairo_save(cr);
     cairo_rectangle(cr, x, y, w, h); cairo_clip(cr);
     cairo_translate(cr, dx, dy); cairo_scale(cr, scale, scale);
-    gdk_cairo_set_source_pixbuf(cr, image, 0, 0); cairo_paint(cr);
+    gdk_cairo_set_source_pixbuf(cr, image, 0, 0); cairo_paint_with_alpha(cr, CLAMP(opacity, 0.0, 1.0));
     cairo_restore(cr);
 }
 
@@ -115,13 +116,12 @@ static void draw_stylus_contact(cairo_t *cr, double scene_w, double scene_h) {
 
 static void draw_recent_covers(cairo_t *cr, double scene_w, double scene_h,
                                const GPtrArray *recent, const NowPlaying *current, double opacity) {
-    if (!get_bool_pref("show-art", TRUE) || !recent) return;
+    if (!get_bool_pref("show-art", TRUE) || !recent || opacity <= 0.0) return;
     /* These are the three square picture windows in scene.c's 1200 x 800 design. */
     const double centers[] = {459, 660, 861};
     const double side = 150;
     gchar *current_key = g_strdup_printf("%s\n%s\n%s", current->title ? current->title : "",
         current->artist ? current->artist : "", current->album ? current->album : "");
-    cairo_push_group(cr);
     guint shown = 0;
     for (guint i = 0; i < recent->len && shown < G_N_ELEMENTS(centers); i++) {
         RecentCover *item = g_ptr_array_index((GPtrArray *)recent, i);
@@ -135,18 +135,17 @@ static void draw_recent_covers(cairo_t *cr, double scene_w, double scene_h,
         if (item->cover) {
             cairo_save(cr);
             cairo_rectangle(cr, x, y, cover_w, cover_h); cairo_clip(cr);
-            paint_cover_image(cr, item->cover, x, y, cover_w, cover_h);
+            paint_cover_image(cr, item->cover, x, y, cover_w, cover_h, opacity);
             cairo_restore(cr);
         }
 
         gchar **metadata = g_strsplit(item->key ? item->key : "", "\n", 3);
         fitted_centered_text(cr, metadata[0], centers[slot] * scale_x, 231 * scale_y,
-            164 * scale_x, 9.2 * scale_y, TRUE, .94, .86, .73, .98);
+            164 * scale_x, 9.2 * scale_y, TRUE, .94, .86, .73, .98 * opacity);
         fitted_centered_text(cr, metadata[1], centers[slot] * scale_x, 244 * scale_y,
-            164 * scale_x, 7.0 * scale_y, FALSE, .78, .69, .57, .88);
+            164 * scale_x, 7.0 * scale_y, FALSE, .78, .69, .57, .88 * opacity);
         g_strfreev(metadata);
     }
-    cairo_pop_group_to_source(cr); cairo_paint_with_alpha(cr, CLAMP(opacity, 0.0, 1.0));
     g_free(current_key);
 }
 
@@ -161,21 +160,19 @@ static void draw_current_cover(cairo_t *cr, double scene_w, double scene_h,
     cairo_matrix_init(&jacket, .80, -.225, .435, .66, 186, 608);
     cairo_scale(cr, scale_x, scale_y);
     cairo_transform(cr, &jacket);
-    cairo_push_group(cr);
     cairo_rectangle(cr, 6, 6, 188, 188); cairo_clip(cr);
     if (track->cover) {
-        paint_cover_image(cr, track->cover, 6, 6, 188, 188);
+        paint_cover_image(cr, track->cover, 6, 6, 188, 188, opacity);
     } else {
         cairo_pattern_t *paper = cairo_pattern_create_linear(6, 6, 194, 194);
-        cairo_pattern_add_color_stop_rgb(paper, 0, .075, .16, .19);
-        cairo_pattern_add_color_stop_rgb(paper, 1, .035, .075, .09);
+        cairo_pattern_add_color_stop_rgba(paper, 0, .075, .16, .19, opacity);
+        cairo_pattern_add_color_stop_rgba(paper, 1, .035, .075, .09, opacity);
         cairo_rectangle(cr, 6, 6, 188, 188); cairo_set_source(cr, paper); cairo_fill(cr);
         cairo_pattern_destroy(paper);
-        fitted_centered_text(cr, track->title, 100, 91, 166, 18, TRUE, .97, .91, .81, 1);
-        fitted_centered_text(cr, track->artist, 100, 116, 166, 11, FALSE, .83, .75, .63, .96);
-        fitted_centered_text(cr, track->album, 100, 145, 166, 8, FALSE, .73, .66, .56, .86);
+        fitted_centered_text(cr, track->title, 100, 91, 166, 18, TRUE, .97, .91, .81, opacity);
+        fitted_centered_text(cr, track->artist, 100, 116, 166, 11, FALSE, .83, .75, .63, .96 * opacity);
+        fitted_centered_text(cr, track->album, 100, 145, 166, 8, FALSE, .73, .66, .56, .86 * opacity);
     }
-    cairo_pop_group_to_source(cr); cairo_paint_with_alpha(cr, CLAMP(opacity, 0.0, 1.0));
     cairo_restore(cr);
 }
 
@@ -220,11 +217,10 @@ static void draw_player_metadata(cairo_t *cr, double scene_w, double scene_h,
     /* Small inset display integrated into the turntable's walnut front panel. */
     cairo_save(cr);
     cairo_scale(cr, sx, sy);
-    cairo_push_group(cr);
     rounded_rect(cr, 470, 577, 423, 57, 5);
-    set_source(cr, .035, .055, .062, .96); cairo_fill_preserve(cr);
-    set_source(cr, .57, .40, .24, .84); cairo_set_line_width(cr, 1.0); cairo_stroke(cr);
-    set_source(cr, .91, .72, .48, .24); cairo_set_line_width(cr, .8);
+    set_source(cr, .035, .055, .062, .96 * opacity); cairo_fill_preserve(cr);
+    set_source(cr, .57, .40, .24, .84 * opacity); cairo_set_line_width(cr, 1.0); cairo_stroke(cr);
+    set_source(cr, .91, .72, .48, .24 * opacity); cairo_set_line_width(cr, .8);
     cairo_move_to(cr, 478, 580); cairo_line_to(cr, 885, 580); cairo_stroke(cr);
 
     double first_y, last_y;
@@ -241,9 +237,8 @@ static void draw_player_metadata(cairo_t *cr, double scene_w, double scene_h,
         double r = (i == 0 && bold[i]) ? .97 : .77;
         double g = (i == 0 && bold[i]) ? .91 : .78;
         double b = (i == 0 && bold[i]) ? .80 : .66;
-        fitted_centered_text(cr, fields[i], 682, y, 382, size, bold[i], r, g, b, .96);
+        fitted_centered_text(cr, fields[i], 682, y, 382, size, bold[i], r, g, b, .96 * opacity);
     }
-    cairo_pop_group_to_source(cr); cairo_paint_with_alpha(cr, CLAMP(opacity, 0.0, 1.0));
     cairo_restore(cr);
     g_free(player_name);
 }
