@@ -14,6 +14,7 @@ typedef struct {
     GtkWidget *canvas;
     GdkMonitor *monitor;
     cairo_surface_t *static_scene;
+    double static_scene_height;
     guint frame_callback_id;
     int width, height;
 } Wallpaper;
@@ -46,7 +47,7 @@ void config_init(void);
 void ensure_autostart(void);
 void wallpaper_free(gpointer data);
 void draw_programmatic_scene(cairo_t *cr, double w, double h);
-void draw_scene(cairo_t *cr, int w, int h, double angle);
+void draw_scene(cairo_t *cr, int w, int h, double angle, Wallpaper *wallpaper);
 gboolean wallpaper_draw(GtkWidget *widget, cairo_t *cr, gpointer data);
 void start_animation(void);
 void refresh_wallpaper(Wallpaper *wp);

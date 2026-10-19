@@ -242,7 +242,19 @@ static void draw_player_metadata(cairo_t *cr, double scene_w, double scene_h,
     g_free(player_name);
 }
 
-void draw_scene(cairo_t *cr, int w, int h, double angle) {
+static void cache_static_scene(Wallpaper *wallpaper, double scene_w, double scene_h) {
+    if (!wallpaper || (wallpaper->static_scene && wallpaper->static_scene_height == scene_h)) return;
+    if (wallpaper->static_scene) cairo_surface_destroy(wallpaper->static_scene);
+
+    cairo_rectangle_t bounds = {0, 0, scene_w, scene_h};
+    wallpaper->static_scene = cairo_recording_surface_create(CAIRO_CONTENT_COLOR_ALPHA, &bounds);
+    cairo_t *static_cr = cairo_create(wallpaper->static_scene);
+    draw_programmatic_scene(static_cr, scene_w, scene_h);
+    cairo_destroy(static_cr);
+    wallpaper->static_scene_height = scene_h;
+}
+
+void draw_scene(cairo_t *cr, int w, int h, double angle, Wallpaper *wallpaper) {
     cairo_save(cr);
     const double scene_w = 1200;
     /* Match the virtual canvas to the monitor aspect before applying framing.
@@ -255,7 +267,13 @@ void draw_scene(cairo_t *cr, int w, int h, double angle) {
     cairo_translate(cr, -scene_w*.5, -scene_h*.5);
     double transition = player_transition_progress();
     gboolean transitioning = player_transition_active();
-    if (!get_bool_pref("transparent-background", FALSE)) draw_programmatic_scene(cr, scene_w, scene_h);
+    if (!get_bool_pref("transparent-background", FALSE)) {
+        if (wallpaper) {
+            cache_static_scene(wallpaper, scene_w, scene_h);
+            cairo_set_source_surface(cr, wallpaper->static_scene, 0, 0);
+            cairo_paint(cr);
+        } else draw_programmatic_scene(cr, scene_w, scene_h);
+    }
     if (transitioning) {
         draw_recent_covers(cr, scene_w, scene_h, player_transition_recent_covers(), &transition_from, 1.0-transition);
         draw_current_cover(cr, scene_w, scene_h, &transition_from, 1.0-transition);
@@ -270,10 +288,9 @@ void draw_scene(cairo_t *cr, int w, int h, double angle) {
 }
 
 gboolean wallpaper_draw(GtkWidget *widget, cairo_t *cr, gpointer data) {
-    (void)data;
     GtkAllocation a; gtk_widget_get_allocation(widget, &a);
     if (a.width < 2 || a.height < 2) return FALSE;
-    draw_scene(cr, a.width, a.height, spin_angle);
+    draw_scene(cr, a.width, a.height, spin_angle, data);
     return FALSE;
 }
 

@@ -96,7 +96,7 @@ static void start_track_transition(void) {
 
 double player_transition_progress(void) {
     if (!transition_active) return 1.0;
-    double t = (g_get_monotonic_time() - transition_started_us) / 500000.0;
+    double t = (g_get_monotonic_time() - transition_started_us) / 650000.0;
     if (t >= 1.0) {
         transition_active = FALSE;
         now_clear(&transition_from);
