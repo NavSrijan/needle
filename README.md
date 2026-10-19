@@ -1,10 +1,10 @@
-# Needle for Linux
+# Needle
 
-Needle places a programmatically drawn listening room and an animated vinyl record on the desktop background layer. It reads track details and album art from any MPRIS-compatible player. It is a small native GTK application with no web runtime or online account requirement.
+Animated vinyl wallpaper for Linux. Needle draws a listening room, spins a record while music plays, and reads track metadata and cover art from MPRIS players.
 
-## Build
+## Build and run
 
-On Debian or Ubuntu, install GTK 3, GTK Layer Shell, libsoup 3, GLib development files, a C compiler, and pkg-config:
+On Debian or Ubuntu, install the build dependencies and run Needle:
 
 ```sh
 sudo apt install build-essential pkg-config libgtk-3-dev libgtk-layer-shell-dev libsoup-3.0-dev
@@ -12,18 +12,25 @@ make
 ./needle
 ```
 
-Install system-wide with `sudo make install` (default prefix `/usr/local`).
+Install to `/usr/local` with `sudo make install`.
 
-## Configuration
+## Desktop support
 
-Settings live in `~/.config/needle/config.ini`. Needle creates the file the first time it starts and watches it for changes, so edits take effect immediately. There is no settings window.
+- **Wayland:** Requires layer-shell. Supported targets include Hyprland and Niri. GNOME Wayland is unsupported.
+- **X11:** Uses a desktop-type window behind normal windows. Stacking and desktop integration vary by desktop environment.
+- **macOS:** Not supported.
+
+Needle creates one wallpaper window per monitor. The window does not take pointer input, so desktop icons remain usable. Track changes crossfade artwork and metadata over half a second. Three previous tracks appear in the wall frames during each session.
+
+## Settings
+
+Edit `~/.config/needle/config.ini`; Needle creates the file on first launch and applies edits immediately. There is no settings window.
 
 ```ini
 [Needle]
 framing=mid
 transparent-background=false
 show-art=true
-show-caption=true
 show-title=true
 show-artist=true
 show-album=true
@@ -33,23 +40,14 @@ hide-paused=false
 launch-login=false
 ```
 
-- `framing`: `wide`, `mid`, or `close`.
-- `transparent-background`: set to `true` to float the record, recent covers, sleeve, and player display over the desktop.
-- `show-art`: show recent covers in the wall frames and the current sleeve artwork.
-- `show-title`, `show-artist`, `show-album`: independently show these fields on the turntable's front display.
-- `show-status`, `show-player`: optionally show playback status and the player name on that display.
-- `show-caption`: retained for compatibility with older configs.
-- `hide-paused`: hide the scene when the player is not playing.
-- `launch-login`: create or remove the per-user XDG autostart entry.
+| Setting | Values | Effect |
+| --- | --- | --- |
+| `framing` | `wide`, `mid`, `close` | Sets the scene crop. |
+| `transparent-background` | `true`, `false` | Draws only the record, covers, sleeve, and player display when enabled. |
+| `show-art` | `true`, `false` | Shows covers in the wall frames and on the sleeve. |
+| `show-title`, `show-artist`, `show-album` | `true`, `false` | Shows selected track fields on the turntable display. |
+| `show-status`, `show-player` | `true`, `false` | Adds playback status or player name to that display. |
+| `hide-paused` | `true`, `false` | Hides the scene when playback is stopped or paused. |
+| `launch-login` | `true`, `false` | Adds or removes Needle from this user's XDG autostart. |
 
-## Desktop support
-
-Wayland layer-shell is the priority and targets compositors such as Hyprland and Niri that expose `zwlr_layer_shell_v1`. GNOME Wayland is not supported in this v0. X11 uses a desktop-window fallback; placement depends on the desktop environment.
-
-The wallpaper surface is non-interactive so desktop icons and pointer actions pass through it. MPRIS artwork may come from a local file or HTTP(S) URL; remote fetches are asynchronous, time out after eight seconds, and are limited to 12 MiB.
-
-The current track appears on the table sleeve and front display. The three wall frames show the previous three tracks observed during the current Needle session.
-
-## macOS
-
-This release is Linux-only. macOS will need a separate desktop-surface host and playback metadata adapter.
+Needle reads local artwork and HTTP(S) artwork URLs from the player. Remote downloads time out after eight seconds and are limited to 12 MiB.

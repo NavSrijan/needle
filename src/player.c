@@ -19,7 +19,13 @@ typedef struct {
 GDBusConnection *bus;
 SoupSession *http_session;
 NowPlaying now = {0};
+NowPlaying transition_from = {0};
 static GPtrArray *recent_covers;
+static GPtrArray *transition_recent_covers;
+static gint64 transition_started_us;
+static gboolean transition_active;
+
+static void now_clear(NowPlaying *item);
 
 static void recent_cover_free(gpointer data) {
     RecentCover *item = data;
@@ -54,6 +60,52 @@ static void remember_current_cover(void) {
 }
 
 const GPtrArray *player_recent_covers(void) { return recent_covers; }
+const GPtrArray *player_transition_recent_covers(void) { return transition_recent_covers; }
+gboolean player_transition_active(void) { return transition_active; }
+
+static void now_copy(NowPlaying *destination, const NowPlaying *source) {
+    destination->title = g_strdup(source->title);
+    destination->artist = g_strdup(source->artist);
+    destination->album = g_strdup(source->album);
+    destination->art_url = g_strdup(source->art_url);
+    destination->status = g_strdup(source->status);
+    destination->player = g_strdup(source->player);
+    destination->cover = source->cover ? g_object_ref(source->cover) : NULL;
+}
+
+static GPtrArray *copy_recent_covers(const GPtrArray *source) {
+    GPtrArray *copy = g_ptr_array_new_with_free_func(recent_cover_free);
+    for (guint i = 0; source && i < source->len; i++) {
+        const RecentCover *item = g_ptr_array_index((GPtrArray *)source, i);
+        RecentCover *duplicate = g_new0(RecentCover, 1);
+        duplicate->key = g_strdup(item->key);
+        duplicate->cover = item->cover ? g_object_ref(item->cover) : NULL;
+        g_ptr_array_add(copy, duplicate);
+    }
+    return copy;
+}
+
+static void start_track_transition(void) {
+    now_clear(&transition_from);
+    now_copy(&transition_from, &now);
+    g_clear_pointer(&transition_recent_covers, g_ptr_array_unref);
+    transition_recent_covers = copy_recent_covers(recent_covers);
+    transition_started_us = g_get_monotonic_time();
+    transition_active = TRUE;
+}
+
+double player_transition_progress(void) {
+    if (!transition_active) return 1.0;
+    double t = (g_get_monotonic_time() - transition_started_us) / 500000.0;
+    if (t >= 1.0) {
+        transition_active = FALSE;
+        now_clear(&transition_from);
+        g_clear_pointer(&transition_recent_covers, g_ptr_array_unref);
+        return 1.0;
+    }
+    t = CLAMP(t, 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}
 
 static char *variant_string(GVariant *dict, const char *key) {
     const char *value = NULL;
@@ -185,6 +237,10 @@ static gboolean poll_mpris(gpointer unused) {
         g_strcmp0(candidate.album, now.album) || g_strcmp0(candidate.art_url, now.art_url) ||
         g_strcmp0(candidate.status, now.status) || g_strcmp0(candidate.player, now.player);
     if (changed) {
+        gboolean track_changed = g_strcmp0(candidate.title, now.title) ||
+            g_strcmp0(candidate.artist, now.artist) || g_strcmp0(candidate.album, now.album) ||
+            g_strcmp0(candidate.player, now.player);
+        if (track_changed) start_track_transition();
         const gboolean same_art = g_strcmp0(candidate.art_url, now.art_url) == 0;
         GdkPixbuf *previous_cover = same_art && now.cover ? g_object_ref(now.cover) : NULL;
         now_clear(&now); now = candidate;
@@ -207,6 +263,8 @@ void player_init(void) {
 
 void player_shutdown(void) {
     now_clear(&now);
+    now_clear(&transition_from);
+    g_clear_pointer(&transition_recent_covers, g_ptr_array_unref);
     g_clear_pointer(&recent_covers, g_ptr_array_unref);
     g_clear_object(&bus);
     g_clear_object(&http_session);

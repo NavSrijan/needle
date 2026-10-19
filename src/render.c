@@ -113,20 +113,21 @@ static void draw_stylus_contact(cairo_t *cr, double scene_w, double scene_h) {
     set_source(cr, .97, .89, .72, 1); cairo_fill(cr);
 }
 
-static void draw_recent_covers(cairo_t *cr, double scene_w, double scene_h) {
-    const GPtrArray *recent = player_recent_covers();
+static void draw_recent_covers(cairo_t *cr, double scene_w, double scene_h,
+                               const GPtrArray *recent, const NowPlaying *current, double opacity) {
     if (!get_bool_pref("show-art", TRUE) || !recent) return;
     /* These are the three square picture windows in scene.c's 1200 x 800 design. */
     const double centers[] = {459, 660, 861};
     const double side = 150;
-    gchar *current_key = g_strdup_printf("%s\n%s\n%s", now.title ? now.title : "",
-        now.artist ? now.artist : "", now.album ? now.album : "");
+    gchar *current_key = g_strdup_printf("%s\n%s\n%s", current->title ? current->title : "",
+        current->artist ? current->artist : "", current->album ? current->album : "");
+    cairo_push_group(cr);
     guint shown = 0;
     for (guint i = 0; i < recent->len && shown < G_N_ELEMENTS(centers); i++) {
         RecentCover *item = g_ptr_array_index((GPtrArray *)recent, i);
         if (!item) continue;
         /* The current track is already on the table sleeve; the wall shows history. */
-        if ((now.title || now.artist || now.album) && g_strcmp0(item->key, current_key) == 0) continue;
+        if ((current->title || current->artist || current->album) && g_strcmp0(item->key, current_key) == 0) continue;
         const guint slot = shown++;
         double scale_x = scene_w / 1200.0, scale_y = scene_h / 800.0;
         double x = (centers[slot] - side*.5) * scale_x, y = 56 * scale_y;
@@ -145,32 +146,36 @@ static void draw_recent_covers(cairo_t *cr, double scene_w, double scene_h) {
             164 * scale_x, 7.0 * scale_y, FALSE, .78, .69, .57, .88);
         g_strfreev(metadata);
     }
+    cairo_pop_group_to_source(cr); cairo_paint_with_alpha(cr, CLAMP(opacity, 0.0, 1.0));
     g_free(current_key);
 }
 
-static void draw_current_cover(cairo_t *cr, double scene_w, double scene_h) {
+static void draw_current_cover(cairo_t *cr, double scene_w, double scene_h,
+                               const NowPlaying *track, double opacity) {
     if (!get_bool_pref("show-art", TRUE)) return;
-    gboolean has_metadata = (now.title && *now.title) || (now.artist && *now.artist) || (now.album && *now.album);
-    if (!now.cover && !has_metadata) return;
+    gboolean has_metadata = (track->title && *track->title) || (track->artist && *track->artist) || (track->album && *track->album);
+    if ((!track->cover && !has_metadata) || opacity <= 0.0) return;
     const double scale_x = scene_w / 1200.0, scale_y = scene_h / 800.0;
     cairo_save(cr);
     cairo_matrix_t jacket;
     cairo_matrix_init(&jacket, .80, -.225, .435, .66, 186, 608);
     cairo_scale(cr, scale_x, scale_y);
     cairo_transform(cr, &jacket);
+    cairo_push_group(cr);
     cairo_rectangle(cr, 6, 6, 188, 188); cairo_clip(cr);
-    if (now.cover) {
-        paint_cover_image(cr, now.cover, 6, 6, 188, 188);
+    if (track->cover) {
+        paint_cover_image(cr, track->cover, 6, 6, 188, 188);
     } else {
         cairo_pattern_t *paper = cairo_pattern_create_linear(6, 6, 194, 194);
         cairo_pattern_add_color_stop_rgb(paper, 0, .075, .16, .19);
         cairo_pattern_add_color_stop_rgb(paper, 1, .035, .075, .09);
         cairo_rectangle(cr, 6, 6, 188, 188); cairo_set_source(cr, paper); cairo_fill(cr);
         cairo_pattern_destroy(paper);
-        fitted_centered_text(cr, now.title, 100, 91, 166, 18, TRUE, .97, .91, .81, 1);
-        fitted_centered_text(cr, now.artist, 100, 116, 166, 11, FALSE, .83, .75, .63, .96);
-        fitted_centered_text(cr, now.album, 100, 145, 166, 8, FALSE, .73, .66, .56, .86);
+        fitted_centered_text(cr, track->title, 100, 91, 166, 18, TRUE, .97, .91, .81, 1);
+        fitted_centered_text(cr, track->artist, 100, 116, 166, 11, FALSE, .83, .75, .63, .96);
+        fitted_centered_text(cr, track->album, 100, 145, 166, 8, FALSE, .73, .66, .56, .86);
     }
+    cairo_pop_group_to_source(cr); cairo_paint_with_alpha(cr, CLAMP(opacity, 0.0, 1.0));
     cairo_restore(cr);
 }
 
@@ -183,30 +188,31 @@ static char *player_display_name(const char *bus_name) {
     return name;
 }
 
-static void draw_player_metadata(cairo_t *cr, double scene_w, double scene_h) {
+static void draw_player_metadata(cairo_t *cr, double scene_w, double scene_h,
+                                 const NowPlaying *track, double opacity) {
     const double sx = scene_w / 1200.0, sy = scene_h / 800.0;
-    const gboolean has_track = (now.title && *now.title) || (now.artist && *now.artist) ||
-                               (now.album && *now.album);
-    if (!has_track) return;
+    const gboolean has_track = (track->title && *track->title) || (track->artist && *track->artist) ||
+                               (track->album && *track->album);
+    if (!has_track || opacity <= 0.0) return;
     const char *fields[5];
     gboolean bold[5];
     guint count = 0;
     char *player_name = NULL;
 
-    if (get_bool_pref("show-title", TRUE) && now.title && *now.title) {
-        fields[count] = now.title; bold[count++] = TRUE;
+    if (get_bool_pref("show-title", TRUE) && track->title && *track->title) {
+        fields[count] = track->title; bold[count++] = TRUE;
     }
-    if (get_bool_pref("show-artist", TRUE) && now.artist && *now.artist) {
-        fields[count] = now.artist; bold[count++] = FALSE;
+    if (get_bool_pref("show-artist", TRUE) && track->artist && *track->artist) {
+        fields[count] = track->artist; bold[count++] = FALSE;
     }
-    if (get_bool_pref("show-album", TRUE) && now.album && *now.album) {
-        fields[count] = now.album; bold[count++] = FALSE;
+    if (get_bool_pref("show-album", TRUE) && track->album && *track->album) {
+        fields[count] = track->album; bold[count++] = FALSE;
     }
-    if (get_bool_pref("show-status", FALSE) && now.status && *now.status) {
-        fields[count] = now.status; bold[count++] = FALSE;
+    if (get_bool_pref("show-status", FALSE) && track->status && *track->status) {
+        fields[count] = track->status; bold[count++] = FALSE;
     }
-    if (get_bool_pref("show-player", FALSE) && now.player) {
-        player_name = player_display_name(now.player);
+    if (get_bool_pref("show-player", FALSE) && track->player) {
+        player_name = player_display_name(track->player);
         if (player_name && *player_name) { fields[count] = player_name; bold[count++] = FALSE; }
     }
     if (count == 0) { g_free(player_name); return; }
@@ -214,6 +220,7 @@ static void draw_player_metadata(cairo_t *cr, double scene_w, double scene_h) {
     /* Small inset display integrated into the turntable's walnut front panel. */
     cairo_save(cr);
     cairo_scale(cr, sx, sy);
+    cairo_push_group(cr);
     rounded_rect(cr, 470, 577, 423, 57, 5);
     set_source(cr, .035, .055, .062, .96); cairo_fill_preserve(cr);
     set_source(cr, .57, .40, .24, .84); cairo_set_line_width(cr, 1.0); cairo_stroke(cr);
@@ -236,6 +243,7 @@ static void draw_player_metadata(cairo_t *cr, double scene_w, double scene_h) {
         double b = (i == 0 && bold[i]) ? .80 : .66;
         fitted_centered_text(cr, fields[i], 682, y, 382, size, bold[i], r, g, b, .96);
     }
+    cairo_pop_group_to_source(cr); cairo_paint_with_alpha(cr, CLAMP(opacity, 0.0, 1.0));
     cairo_restore(cr);
     g_free(player_name);
 }
@@ -251,12 +259,19 @@ void draw_scene(cairo_t *cr, int w, int h, double angle) {
     const double fit = MAX(w/scene_w, h/scene_h);
     cairo_translate(cr, w*.5, h*.5); cairo_scale(cr, fit*zoom, fit*zoom);
     cairo_translate(cr, -scene_w*.5, -scene_h*.5);
+    double transition = player_transition_progress();
+    gboolean transitioning = player_transition_active();
     if (!get_bool_pref("transparent-background", FALSE)) draw_programmatic_scene(cr, scene_w, scene_h);
-    draw_recent_covers(cr, scene_w, scene_h);
+    if (transitioning) {
+        draw_recent_covers(cr, scene_w, scene_h, player_transition_recent_covers(), &transition_from, 1.0-transition);
+        draw_current_cover(cr, scene_w, scene_h, &transition_from, 1.0-transition);
+        draw_player_metadata(cr, scene_w, scene_h, &transition_from, 1.0-transition);
+    }
+    draw_recent_covers(cr, scene_w, scene_h, player_recent_covers(), &now, transitioning ? transition : 1.0);
     draw_live_record(cr, scene_w, scene_h, angle);
     draw_stylus_contact(cr, scene_w, scene_h);
-    draw_current_cover(cr, scene_w, scene_h);
-    draw_player_metadata(cr, scene_w, scene_h);
+    draw_current_cover(cr, scene_w, scene_h, &now, transitioning ? transition : 1.0);
+    draw_player_metadata(cr, scene_w, scene_h, &now, transitioning ? transition : 1.0);
     cairo_restore(cr);
 }
 
@@ -272,10 +287,11 @@ static gboolean tick_wallpapers(gpointer unused) {
     (void)unused;
     gint64 now_us = g_get_monotonic_time();
     if (last_spin_tick == 0) last_spin_tick = now_us;
-    if (g_strcmp0(now.status, "Playing") != 0) { last_spin_tick = now_us; return G_SOURCE_CONTINUE; }
-    double elapsed = (now_us - last_spin_tick) / 1000000.0;
+    gboolean playing = g_strcmp0(now.status, "Playing") == 0;
+    double elapsed = playing ? (now_us - last_spin_tick) / 1000000.0 : 0.0;
     last_spin_tick = now_us;
-    spin_angle = fmod(spin_angle + elapsed * (2.0 * G_PI * 33.333333 / 60.0), 2.0 * G_PI);
+    if (playing) spin_angle = fmod(spin_angle + elapsed * (2.0 * G_PI * 33.333333 / 60.0), 2.0 * G_PI);
+    if (!playing && !player_transition_active()) return G_SOURCE_CONTINUE;
     for (guint i = 0; i < wallpapers->len; i++) {
         Wallpaper *wp = g_ptr_array_index(wallpapers, i);
         if (wp->canvas) gtk_widget_queue_draw(wp->canvas);

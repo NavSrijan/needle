@@ -35,6 +35,7 @@ extern GFileMonitor *prefs_monitor;
 extern GDBusConnection *bus;
 extern SoupSession *http_session;
 extern NowPlaying now;
+extern NowPlaying transition_from;
 extern gboolean wallpaper_started;
 extern double spin_angle;
 
@@ -53,3 +54,6 @@ void start_wallpaper(void);
 void player_init(void);
 void player_shutdown(void);
 const GPtrArray *player_recent_covers(void);
+const GPtrArray *player_transition_recent_covers(void);
+gboolean player_transition_active(void);
+double player_transition_progress(void);
