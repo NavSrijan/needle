@@ -1,245 +1,649 @@
+/*
+ * A late-night listening room, drawn entirely with Cairo.
+ * Drop-in replacement for scene.c: the public function is unchanged.
+ * All shapes use a 1200 x 800 design space, then scale to the supplied size.
+ * The record/platter centre remains at (0.643 * w, 0.566 * h) so a player
+ * that composites its animated vinyl artwork can keep using that anchor.
+ * No images, extra libraries, randomness or frame-dependent state required.
+ */
 #include <cairo.h>
 #include <math.h>
+#include <stdint.h>
+#include <string.h>
 #include "needle.h"
 
-/* A hand drawn listening room. Artwork is supplied separately by the player. */
-static void round_path(cairo_t *cr, double x, double y, double w, double h, double r) {
-    r = MIN(r, MIN(w, h) * .5);
-    cairo_new_sub_path(cr);
-    cairo_arc(cr, x+w-r, y+r, r, -G_PI_2, 0);
-    cairo_arc(cr, x+w-r, y+h-r, r, 0, G_PI_2);
-    cairo_arc(cr, x+r, y+h-r, r, G_PI_2, G_PI);
-    cairo_arc(cr, x+r, y+r, r, G_PI, 3*G_PI_2);
-    cairo_close_path(cr);
+#define SCENE_PI 3.14159265358979323846
+#define SCENE_RGB(x) (((x)>>16&255)/255.0), (((x)>>8&255)/255.0), (((x)&255)/255.0)
+
+static void ink(cairo_t *c, uint32_t rgb, double a) {
+    cairo_set_source_rgba(c, SCENE_RGB(rgb), a);
+}
+static void box(cairo_t *c, double x, double y, double w, double h,
+                uint32_t rgb, double a) {
+    cairo_rectangle(c,x,y,w,h); ink(c,rgb,a); cairo_fill(c);
+}
+static void rounded_path(cairo_t *c,double x,double y,double w,double h,double r) {
+    r=fmax(0,fmin(r,fmin(w,h)*.5));
+    cairo_new_sub_path(c);
+    cairo_arc(c,x+w-r,y+r,r,-SCENE_PI/2,0);
+    cairo_arc(c,x+w-r,y+h-r,r,0,SCENE_PI/2);
+    cairo_arc(c,x+r,y+h-r,r,SCENE_PI/2,SCENE_PI);
+    cairo_arc(c,x+r,y+r,r,SCENE_PI,3*SCENE_PI/2);
+    cairo_close_path(c);
+}
+static void round_box(cairo_t *c,double x,double y,double w,double h,double r,
+                      uint32_t rgb,double a) {
+    rounded_path(c,x,y,w,h,r); ink(c,rgb,a); cairo_fill(c);
+}
+static void oval(cairo_t *c,double x,double y,double rx,double ry,
+                 uint32_t rgb,double a) {
+    if(rx<=0||ry<=0) return;
+    cairo_save(c); cairo_translate(c,x,y); cairo_scale(c,rx,ry);
+    cairo_arc(c,0,0,1,0,2*SCENE_PI); ink(c,rgb,a); cairo_fill(c);
+    cairo_restore(c);
+}
+static void oval_ring(cairo_t *c,double x,double y,double rx,double ry,
+                      double width,uint32_t rgb,double a) {
+    if(rx<=0||ry<=0) return;
+    cairo_save(c); cairo_translate(c,x,y); cairo_scale(c,rx,ry);
+    cairo_arc(c,0,0,1,0,2*SCENE_PI); ink(c,rgb,a);
+    cairo_set_line_width(c,width); cairo_stroke(c);
+    cairo_restore(c);
+}
+static void segment(cairo_t *c,double x,double y,double xx,double yy,
+                    double width,uint32_t rgb,double a) {
+    cairo_move_to(c,x,y); cairo_line_to(c,xx,yy);
+    ink(c,rgb,a); cairo_set_line_width(c,width); cairo_stroke(c);
+}
+static void polygon(cairo_t *c,const double *xy,int n,uint32_t rgb,double a) {
+    cairo_move_to(c,xy[0],xy[1]);
+    for(int i=1;i<n;i++) cairo_line_to(c,xy[i*2],xy[i*2+1]);
+    cairo_close_path(c); ink(c,rgb,a); cairo_fill(c);
+}
+static void linear_box(cairo_t *c,double x,double y,double w,double h,
+                       double x0,double y0,double x1,double y1,
+                       uint32_t top,uint32_t bottom) {
+    cairo_pattern_t *p=cairo_pattern_create_linear(x0,y0,x1,y1);
+    cairo_pattern_add_color_stop_rgb(p,0,SCENE_RGB(top));
+    cairo_pattern_add_color_stop_rgb(p,1,SCENE_RGB(bottom));
+    cairo_rectangle(c,x,y,w,h); cairo_set_source(c,p); cairo_fill(c);
+    cairo_pattern_destroy(p);
+}
+static void radial_glow(cairo_t *c,double x,double y,double radius,
+                        uint32_t rgb,double opacity) {
+    cairo_pattern_t *p=cairo_pattern_create_radial(x,y,0,x,y,radius);
+    cairo_pattern_add_color_stop_rgba(p,0,SCENE_RGB(rgb),opacity);
+    cairo_pattern_add_color_stop_rgba(p,.4,SCENE_RGB(rgb),opacity*.32);
+    cairo_pattern_add_color_stop_rgba(p,1,SCENE_RGB(rgb),0);
+    cairo_rectangle(c,x-radius,y-radius,2*radius,2*radius);
+    cairo_set_source(c,p); cairo_fill(c); cairo_pattern_destroy(p);
+}
+static void lettering(cairo_t *c,double x,double y,double size,
+                      const char *s,uint32_t rgb,double opacity,int bold) {
+    cairo_select_font_face(c,"Sans",CAIRO_FONT_SLANT_NORMAL,
+                            bold?CAIRO_FONT_WEIGHT_BOLD:CAIRO_FONT_WEIGHT_NORMAL);
+    cairo_set_font_size(c,size); ink(c,rgb,opacity);
+    cairo_move_to(c,x,y); cairo_show_text(c,s);
+}
+static void centered_lettering(cairo_t *c,double cx,double y,double size,
+                               const char *s,uint32_t rgb,double opacity,int bold) {
+    double approx = strlen(s) * size * (bold ? 0.34 : 0.31);
+    cairo_select_font_face(c,"Sans",CAIRO_FONT_SLANT_NORMAL,
+                            bold?CAIRO_FONT_WEIGHT_BOLD:CAIRO_FONT_WEIGHT_NORMAL);
+    cairo_set_font_size(c,size);
+    ink(c,rgb,opacity);
+    cairo_move_to(c,cx-approx,y);
+    cairo_show_text(c,s);
+}
+static uint32_t scramble(uint32_t n) {
+    n^=n>>16; n*=0x7feb352du; n^=n>>15; n*=0x846ca68bu;
+    return n^(n>>16);
 }
 
-static void rect(cairo_t *cr, double x, double y, double w, double h,
-                 double r, double g, double b, double a) {
-    cairo_rectangle(cr, x, y, w, h); cairo_set_source_rgba(cr, r, g, b, a); cairo_fill(cr);
-}
-
-static void ellipse(cairo_t *cr, double cx, double cy, double rx, double ry,
-                    double r, double g, double b, double a) {
-    cairo_save(cr); cairo_translate(cr, cx, cy); cairo_scale(cr, rx, ry);
-    cairo_arc(cr, 0, 0, 1, 0, 2*G_PI); cairo_set_source_rgba(cr, r, g, b, a); cairo_fill(cr);
-    cairo_restore(cr);
-}
-
-static void draw_window(cairo_t *cr, double w, double h) {
-    double x=0, y=0, ww=w*.218, hh=h*.45;
-    cairo_save(cr);
-    rect(cr, x, y, ww, hh, .12,.075,.052,1);
-    cairo_rectangle(cr, 13, 12, ww-29, hh-27);
-    cairo_pattern_t *sky=cairo_pattern_create_linear(0,0,ww,hh);
-    cairo_pattern_add_color_stop_rgb(sky,0,.21,.28,.38);
-    cairo_pattern_add_color_stop_rgb(sky,.45,.95,.48,.25);
-    cairo_pattern_add_color_stop_rgb(sky,1,.97,.66,.32);
-    cairo_set_source(cr,sky); cairo_fill(cr); cairo_pattern_destroy(sky);
-    /* Soft sunset glow and simple distant tree silhouettes. */
-    cairo_pattern_t *glow=cairo_pattern_create_radial(ww*.72,hh*.55,2,ww*.72,hh*.55,ww*.48);
-    cairo_pattern_add_color_stop_rgba(glow,0,1,.78,.42,.85); cairo_pattern_add_color_stop_rgba(glow,1,1,.53,.26,0);
-    cairo_rectangle(cr,14,13,ww-30,hh-28); cairo_set_source(cr,glow); cairo_fill(cr); cairo_pattern_destroy(glow);
-    cairo_save(cr); cairo_rectangle(cr,14,13,ww-30,hh-28); cairo_clip(cr);
-    for(int i=0;i<11;i++) {
-        double tx=ww*(.02+i*.105), base=hh*(.82+(i%3)*.035), th=hh*(.18+(i%4)*.04);
-        ellipse(cr,tx,base-th*.45,ww*.055,th*.48,.13,.20,.16,.52);
-        rect(cr,tx-ww*.006,base-th*.35,ww*.012,th*.48,.11,.12,.10,.8);
+static void draw_wall(cairo_t *c) {
+    linear_box(c,0,0,1200,540,0,0,1100,650,0x1a2328,0x4a3830);
+    /* More restrained, slightly more realistic wall tone and light falloff. */
+    radial_glow(c,205,210,430,0xf0a365,.15);
+    radial_glow(c,1100,315,385,0xf09a47,.17);
+    linear_box(c,0,412,1200,100,0,412,0,510,0x343636,0x2b2c2b);
+    box(c,0,415,1200,2,0xb18d68,.24);
+    box(c,0,511,1200,7,0x231d1d,1);
+    box(c,0,518,1200,2,0x8b6547,.30);
+    for(int i=0;i<140;i++) {
+        uint32_t k=scramble((uint32_t)i+77);
+        double x=(double)(k%1200), y=(double)((k>>11)%405);
+        segment(c,x,y,x+7+(k>>22)%24,y+1.2,0.7,0xf3dcc0,.015);
     }
-    cairo_restore(cr);
-    rect(cr,ww*.49,0,ww*.028,hh,.10,.065,.045,1);
-    rect(cr,0,hh*.50,ww,hh*.027,.10,.065,.045,1);
-    /* Wood sill and a narrow light-catching edge. */
-    rect(cr,0,hh-9,ww+25,18,.24,.12,.055,1);
-    rect(cr,0,hh-11,ww+24,3,.69,.38,.16,.9);
-    cairo_restore(cr);
-}
-
-static void leaf(cairo_t *cr,double x,double y,double sx,double sy,double angle,double shade) {
-    cairo_save(cr); cairo_translate(cr,x,y); cairo_rotate(cr,angle);
-    cairo_move_to(cr,0,0); cairo_curve_to(cr,sx*.22,-sy*.72,sx*.84,-sy*.52,sx,0);
-    cairo_curve_to(cr,sx*.78,sy*.56,sx*.20,sy*.58,0,0); cairo_close_path(cr);
-    cairo_pattern_t *p=cairo_pattern_create_linear(0,-sy*.4,sx,sy*.3);
-    cairo_pattern_add_color_stop_rgb(p,0,.18+shade,.29+shade,.15);
-    cairo_pattern_add_color_stop_rgb(p,1,.035,.12+shade,.065);
-    cairo_set_source(cr,p); cairo_fill(cr); cairo_pattern_destroy(p);
-    cairo_move_to(cr,2,0); cairo_curve_to(cr,sx*.35,-sy*.02,sx*.60,-sy*.01,sx*.91,0);
-    cairo_set_source_rgba(cr,.65,.62,.32,.28); cairo_set_line_width(cr,1.2); cairo_stroke(cr);
-    cairo_restore(cr);
-}
-
-static void draw_plant(cairo_t *cr,double w,double h) {
-    double x=w*.09, floor=h*.61;
-    /* Stems and broad, individually controlled leaves. */
-    cairo_set_line_width(cr,4); cairo_set_source_rgb(cr,.11,.20,.10);
-    cairo_move_to(cr,x,floor-h*.10); cairo_curve_to(cr,x-28,floor-h*.26,x+52,floor-h*.40,x+20,floor-h*.48); cairo_stroke(cr);
-    cairo_move_to(cr,x,floor-h*.10); cairo_curve_to(cr,x+35,floor-h*.26,x-40,floor-h*.36,x-16,floor-h*.45); cairo_stroke(cr);
-    leaf(cr,x+20,floor-h*.46,68,29,-.44,.07); leaf(cr,x-14,floor-h*.43,72,31,3.65,.02);
-    leaf(cr,x+30,floor-h*.39,75,31,-.18,.10); leaf(cr,x-8,floor-h*.36,67,30,3.45,.07);
-    leaf(cr,x+44,floor-h*.31,70,32,.28,.04); leaf(cr,x-25,floor-h*.31,76,33,3.95,.03);
-    leaf(cr,x+29,floor-h*.25,78,34,-.42,.10); leaf(cr,x-8,floor-h*.24,64,28,3.3,.05);
-    leaf(cr,x+12,floor-h*.20,78,34,-.12,.08); leaf(cr,x-39,floor-h*.20,67,29,3.6,.01);
-    leaf(cr,x+48,floor-h*.16,62,28,.25,.06); leaf(cr,x-25,floor-h*.14,68,30,3.35,.08);
-    leaf(cr,x+5,floor-h*.37,57,25,1.1,.02); leaf(cr,x-2,floor-h*.40,59,25,2.0,.07);
-    ellipse(cr,x+8,floor-h*.11,66,15,.04,.025,.018,.30);
-    cairo_pattern_t *pot=cairo_pattern_create_linear(x-46,floor-h*.13,x+52,floor);
-    cairo_pattern_add_color_stop_rgb(pot,0,.72,.48,.29); cairo_pattern_add_color_stop_rgb(pot,1,.36,.20,.10);
-    cairo_move_to(cr,x-45,floor-h*.12); cairo_line_to(cr,x+46,floor-h*.12); cairo_line_to(cr,x+36,floor); cairo_curve_to(cr,x+5,floor+9,x-14,floor+9,x-37,floor); cairo_close_path(cr);
-    cairo_set_source(cr,pot); cairo_fill(cr); cairo_pattern_destroy(pot);
-    ellipse(cr,x,floor-h*.12,47,10,.79,.58,.36,1);
-    cairo_set_source_rgba(cr,.96,.73,.47,.35); cairo_set_line_width(cr,2);
-    cairo_move_to(cr,x-34,floor-h*.085); cairo_line_to(cr,x+35,floor-h*.085); cairo_stroke(cr);
-}
-
-static void draw_frames(cairo_t *cr,double w,double h) {
-    const double centers[]={.452,.656,.860};
-    double y=h*.045, fw=w*.178, fh=h*.223;
-    for(int i=0;i<3;i++) {
-        double x=w*centers[i]-fw*.5;
-        /* cast shadow, walnut frame, cream mat and recessed art opening */
-        round_path(cr,x+8,y+10,fw,fh,3); cairo_set_source_rgba(cr,.03,.018,.012,.46); cairo_fill(cr);
-        cairo_pattern_t *wood=cairo_pattern_create_linear(x,y,x+fw,y+fh);
-        cairo_pattern_add_color_stop_rgb(wood,0,.24,.12,.065); cairo_pattern_add_color_stop_rgb(wood,.45,.09,.045,.025); cairo_pattern_add_color_stop_rgb(wood,1,.32,.17,.08);
-        round_path(cr,x,y,fw,fh,3); cairo_set_source(cr,wood); cairo_fill(cr); cairo_pattern_destroy(wood);
-        rect(cr,x+fw*.055,y+fh*.085,fw*.89,fh*.83,.41,.29,.20,1);
-        rect(cr,x+fw*.10,y+fh*.15,fw*.80,fh*.70,.20,.12,.08,1);
-        rect(cr,x+fw*.115,y+fh*.17,fw*.77,fh*.66,.11,.065,.043,1);
-        /* Fine highlights make the frames read as objects on the wall. */
-        cairo_set_source_rgba(cr,.82,.56,.30,.45); cairo_set_line_width(cr,1.4);
-        cairo_move_to(cr,x+5,y+fh-5); cairo_line_to(cr,x+5,y+6); cairo_line_to(cr,x+fw-6,y+6); cairo_stroke(cr);
+    /* Slight architectural shadow rhythm behind furniture. */
+    for(int i=0;i<13;i++) {
+        double x=23+i*96;
+        segment(c,x,422,x,508,.8,0x0d1e24,.12);
     }
+    /* Soft shadows from the gallery and shelf add depth. */
+    box(c,350,270,640,10,0x101417,.18);
+    box(c,332,490,720,14,0x101417,.15);
 }
 
-static void draw_shelf(cairo_t *cr,double w,double h) {
-    double x=w*.31,y=h*.355,ww=w*.49,hh=h*.235;
-    rect(cr,x-10,y+10,ww+20,hh,.05,.025,.015,.34);
-    cairo_pattern_t *dark=cairo_pattern_create_linear(x,y,x,y+hh);
-    cairo_pattern_add_color_stop_rgb(dark,0,.13,.07,.04); cairo_pattern_add_color_stop_rgb(dark,1,.025,.018,.013);
-    cairo_rectangle(cr,x,y,ww,hh); cairo_set_source(cr,dark); cairo_fill(cr); cairo_pattern_destroy(dark);
-    rect(cr,x-14,y-13,ww+28,22,.34,.17,.075,1);
-    rect(cr,x-14,y-14,ww+28,4,.68,.34,.14,1);
-    rect(cr,x-12,y+hh-10,ww+24,15,.25,.12,.05,1);
-    rect(cr,x+ww*.50,y+6,8,hh-18,.18,.09,.045,1);
-    /* LP spines are simple varied wood, paper and faded-color strips. */
-    unsigned int seed=773;
-    for(int bay=0;bay<2;bay++) {
-        double bx=x+18+bay*(ww*.50), bw=ww*.50-28;
-        for(double xx=bx;xx<bx+bw;) {
-            seed=seed*1664525u+1013904223u;
-            double sw=9+(seed%13), inset=3+(seed%9);
-            double r=.16+((seed>>8)%35)/100.0, g=.09+((seed>>16)%25)/100.0, b=.045+((seed>>24)%20)/100.0;
-            rect(cr,xx,y+inset,MIN(sw,bx+bw-xx),hh-25,r,g,b,1);
-            rect(cr,xx+1,y+inset+4,1.5,hh-34,.78,.54,.30,.35);
-            if((seed&3)==0) rect(cr,xx+3,y+hh*.30,sw-5,2,.76,.48,.22,.42);
-            xx+=sw+2;
+static void draw_window(cairo_t *c) {
+    const double x=25,y=19,w=277,h=386;
+    round_box(c,x+10,y+12,w,h,17,0x0e1417,.56);
+    round_box(c,x-7,y-7,w+14,h+14,18,0x1d1919,1);
+    round_box(c,x-2,y-3,w+4,h+7,16,0x79533b,1);
+    round_box(c,x+8,y+8,w-16,h-15,10,0x121f2a,1);
+    cairo_save(c);
+    rounded_path(c,x+12,y+12,w-24,h-27,8); cairo_clip(c);
+    cairo_pattern_t *sky=cairo_pattern_create_linear(0,y,0,y+h);
+    cairo_pattern_add_color_stop_rgb(sky,0,SCENE_RGB(0x24344f));
+    cairo_pattern_add_color_stop_rgb(sky,.38,SCENE_RGB(0x6a5970));
+    cairo_pattern_add_color_stop_rgb(sky,.72,SCENE_RGB(0xcc8b79));
+    cairo_pattern_add_color_stop_rgb(sky,1,SCENE_RGB(0xf1b56e));
+    cairo_rectangle(c,x+12,y+12,w-24,h-27);
+    cairo_set_source(c,sky); cairo_fill(c); cairo_pattern_destroy(sky);
+    radial_glow(c,204,254,152,0xffd38f,.56);
+    oval(c,216,255,28,28,0xffdf9f,.72);
+    for(int i=0;i<20;i++) {
+        uint32_t k=scramble(1601+(uint32_t)i);
+        double px=43+k%231, py=37+(k>>11)%140;
+        oval(c,px,py,((k>>24)%3==0)?1.1:.6,.6,0xffead7,.23);
+    }
+    const double mountains1[]={36,325,84,291,120,315,169,275,214,304,291,269,291,389,36,389};
+    polygon(c,mountains1,7,0x746f78,.56);
+    const double mountains2[]={28,356,76,323,122,341,174,310,225,342,298,309,298,395,28,395};
+    polygon(c,mountains2,7,0x49515d,.88);
+    for(int i=0;i<15;i++) {
+        double bx=32+i*19, bh=20+(scramble(i+9)%39);
+        box(c,bx,389-bh,17,bh,0x252f39,.68);
+        if(i%3==0) box(c,bx+5,396-bh,3,3,0xffc07b,.36);
+    }
+    for(int i=0;i<8;i++) {
+        double tx=32+i*36, ty=366+(i%3)*11;
+        segment(c,tx,393,tx+3,ty-42,2.5,0x1b2d32,.72);
+        oval(c,tx+3,ty-46,15+(i%3)*3,26,0x213d41,.74);
+        oval(c,tx-7,ty-38,13,20,0x183036,.48);
+    }
+    const double glass1[]={54,31,78,31,174,388,151,388};
+    polygon(c,glass1,4,0xffffff,.036);
+    const double glass2[]={211,45,224,45,278,260,266,260};
+    polygon(c,glass2,4,0xffffff,.020);
+    cairo_restore(c);
+    box(c,156,28,9,366,0x221d1c,1);
+    box(c,161,29,1,365,0xb7845a,.45);
+    box(c,32,207,264,9,0x231d1c,1);
+    box(c,32,209,264,1.5,0xc59b6b,.35);
+    round_box(c,12,398,314,16,3,0x2c2320,1);
+    box(c,13,399,312,3,0xc79260,.72);
+    round_box(c,19,408,303,8,3,0x161a1a,.7);
+    radial_glow(c,293,368,300,0xe9a269,.10);
+}
+
+static void draw_poster(cairo_t *c,int which,double x,double y,double w,double h) {
+    const double pad=14;
+    const double art=x+pad, arty=y+pad, arts=w-2*pad;
+    const double footer_y=arty+arts+9;
+    round_box(c,x+8,y+10,w,h,4,0x060b10,.40);
+    round_box(c,x,y,w,h,4,0x12181b,1);
+    round_box(c,x+3,y+3,w-6,h-6,2,0xb58f63,1);
+    round_box(c,x+7,y+7,w-14,h-14,1,0x15191b,1);
+    round_box(c,art,arty,arts,arts,7,0x0f1518,1);
+    cairo_save(c); rounded_path(c,art,arty,arts,arts,7); cairo_clip(c);
+    if(which==0) {
+        linear_box(c,art,arty,arts,arts,0,arty,0,arty+arts,0xe9dfc7,0xd3c2a1);
+        oval(c,art+arts*.52,arty+arts*.37,arts*.24,arts*.24,0xd58c68,1);
+        oval(c,art+arts*.61,arty+arts*.36,arts*.24,arts*.24,0xf4eacd,1);
+        const double hill1[]={art,arty+arts*.72,art+arts*.24,arty+arts*.63,art+arts*.42,arty+arts*.70,
+                              art+arts*.63,arty+arts*.60,art+arts*.83,arty+arts*.68,art+arts,arty+arts*.62,
+                              art+arts,arty+arts,art,arty+arts};
+        polygon(c,hill1,8,0x304d50,1);
+        const double hill2[]={art,arty+arts*.82,art+arts*.20,arty+arts*.75,art+arts*.44,arty+arts*.82,
+                              art+arts*.67,arty+arts*.71,art+arts,arty+arts*.78,art+arts,arty+arts,art,arty+arts};
+        polygon(c,hill2,7,0x173138,.88);
+        box(c,art+14,arty+16,26,1,0x51615e,.55);
+        lettering(c,art+45,arty+19,5.5,"LP 01",0x51615e,.84,1);
+    } else if(which==1) {
+        linear_box(c,art,arty,arts,arts,0,arty,0,arty+arts,0x2a5555,0x142d34);
+        for(int n=0;n<8;n++)
+            segment(c,art+18,arty+21+n*14,art+arts-18,arty+18+n*14,1.3,0xc5cfb8,.12);
+        oval(c,art+arts*.5,arty+arts*.47,arts*.31,arts*.31,0xddaa68,1);
+        oval(c,art+arts*.5,arty+arts*.47,arts*.22,arts*.22,0x20444a,1);
+        oval(c,art+arts*.5,arty+arts*.47,arts*.08,arts*.08,0xf1d093,1);
+        oval_ring(c,art+arts*.5,arty+arts*.47,arts*.27,arts*.27,.009,0xf7dfb4,.28);
+        lettering(c,art+14,arty+20,5.5,"CATALOG 02",0xe4d4b4,.62,1);
+    } else {
+        linear_box(c,art,arty,arts,arts,0,arty,arts,arty+arts,0x8b625d,0x3b4156);
+        for(int j=0;j<6;j++) {
+            double yy=arty+16+j*24;
+            segment(c,art-6,yy,art+arts+8,yy-17,8,j%2?0xe6b885:0x2e404b,.58);
         }
+        oval(c,art+arts*.67,arty+arts*.38,arts*.15,arts*.15,0xf3d4a5,1);
+        oval(c,art+arts*.67,arty+arts*.38,arts*.095,arts*.095,0x263d45,1);
+        oval(c,art+arts*.67,arty+arts*.38,arts*.023,arts*.023,0xf5c88f,1);
+        box(c,art,arty+arts*.74,arts,arts*.26,0x17242c,.76);
+        lettering(c,art+14,arty+20,5.5,"PRESSING 03",0xf1dec1,.57,1);
+    }
+    cairo_restore(c);
+
+    box(c,art,footer_y,w-2*pad,1,0x8d6a49,.38);
+    centered_lettering(c,x+w*.5,footer_y+16,10.0,
+                       which==0?"BLUE HOUR":(which==1?"SIDE A":"33 / 45"),
+                       0xf0debc,.98,1);
+    centered_lettering(c,x+w*.5,footer_y+28,6.7,
+                       which==0?"THE EVENING SESSIONS":(which==1?"A STUDY IN SOUND":"LONG PLAYING RECORDS"),
+                       0xc8af92,.84,0);
+    centered_lettering(c,x+w*.5,footer_y+37,5.6,
+                       which==0?"AMBIENT SERIES":(which==1?"CUT 02 / ANALOG DUB":"STEREO COLLECTION"),
+                       0xa88d70,.72,0);
+    segment(c,x+5,y+h-7,x+5,y+6,1,0xffd8a0,.22);
+    segment(c,x+5,y+6,x+w-5,y+6,1,0xffd8a0,.30);
+    const double shine[]={x+18,y+16,x+29,y+16,x+87,y+h-18,x+76,y+h-18};
+    polygon(c,shine,4,0xffffff,.028);
+}
+static void draw_gallery(cairo_t *c) {
+    draw_poster(c,0,370,42,178,228);
+    draw_poster(c,1,571,42,178,228);
+    draw_poster(c,2,772,42,178,228);
+    for(int i=0;i<3;i++) {
+        double cx=459.0+i*201;
+        oval(c,cx,35,3,3,0x947d5b,.7);
+        segment(c,cx,35,cx,42,1.2,0x8b7454,.47);
     }
 }
 
-static void draw_lamp(cairo_t *cr,double w,double h) {
-    double x=w*.963, y=h*.295;
-    /* Small side cabinet grounds the lamp and adds a second plane behind the deck. */
-    rect(cr,w*.895,h*.49,w*.105,h*.12,.19,.085,.035,1);
-    rect(cr,w*.886,h*.48,w*.114,h*.018,.40,.20,.085,1);
-    rect(cr,w*.895,h*.495,w*.105,3,.70,.38,.16,.8);
-    rect(cr,w*.91,h*.535,w*.07,2,.075,.032,.014,.85);
-    rect(cr,w*.91,h*.575,w*.07,2,.075,.032,.014,.85);
-    ellipse(cr,w*.947,h*.535,4,4,.58,.36,.14,.8);
-    ellipse(cr,w*.947,h*.575,4,4,.58,.36,.14,.8);
-    cairo_pattern_t *halo=cairo_pattern_create_radial(x,y,10,x,y,w*.19);
-    cairo_pattern_add_color_stop_rgba(halo,0,1,.59,.24,.25); cairo_pattern_add_color_stop_rgba(halo,1,1,.48,.18,0);
-    cairo_rectangle(cr,x-w*.22,y-w*.20,w*.42,w*.46); cairo_set_source(cr,halo); cairo_fill(cr); cairo_pattern_destroy(halo);
-    /* table edge, turned wooden stem and low round base */
-    ellipse(cr,x,y+h*.19,92,15,.17,.08,.035,1);
-    rect(cr,x-12,y+h*.04,24,h*.17,.24,.11,.045,1);
-    ellipse(cr,x,y+h*.21,39,9,.11,.055,.025,1);
-    cairo_pattern_t *shade=cairo_pattern_create_linear(x-w*.055,y-h*.08,x+w*.07,y+h*.10);
-    cairo_pattern_add_color_stop_rgb(shade,0,1,.83,.53); cairo_pattern_add_color_stop_rgb(shade,1,.88,.43,.14);
-    cairo_move_to(cr,x-w*.115,y+h*.055); cairo_curve_to(cr,x-w*.095,y-h*.06,x+w*.13,y-h*.06,x+w*.14,y+h*.055);
-    cairo_curve_to(cr,x+w*.11,y+h*.085,x-w*.08,y+h*.085,x-w*.115,y+h*.055); cairo_close_path(cr);
-    cairo_set_source(cr,shade); cairo_fill(cr); cairo_pattern_destroy(shade);
-    ellipse(cr,x+5,y+h*.055,13,5,1,.88,.61,.95);
-    cairo_set_source_rgba(cr,.48,.22,.065,.75); cairo_set_line_width(cr,2); cairo_stroke(cr);
-}
-
-static void draw_desk(cairo_t *cr,double w,double h) {
-    double top=h*.57;
-    cairo_pattern_t *wood=cairo_pattern_create_linear(0,top,0,h);
-    cairo_pattern_add_color_stop_rgb(wood,0,.40,.22,.105); cairo_pattern_add_color_stop_rgb(wood,.27,.55,.30,.14); cairo_pattern_add_color_stop_rgb(wood,1,.22,.095,.04);
-    cairo_rectangle(cr,0,top,w,h-top); cairo_set_source(cr,wood); cairo_fill(cr); cairo_pattern_destroy(wood);
-    for(int i=0;i<30;i++) {
-        double yy=top+13+i*(h-top-20)/30.0;
-        cairo_set_source_rgba(cr,(i%3==0)?1:.13,(i%3==0)?.60:.055,(i%3==0)?.27:.018,(i%3==0)?.10:.16);
-        cairo_set_line_width(cr,(i%5==0)?2.0:.8);
-        cairo_move_to(cr,0,yy); cairo_curve_to(cr,w*.28,yy-5,w*.70,yy+8,w,yy-2); cairo_stroke(cr);
+static void draw_shelf(cairo_t *c) {
+    const double x=311,y=312,w=680,h=183;
+    round_box(c,x+12,y+14,w,h,5,0x0d1012,.42);
+    linear_box(c,x,y,w,h,0,y,0,y+h,0x3d3027,0x1a1c1c);
+    box(c,x+11,y+7,w-22,h-24,0x0d181d,1);
+    box(c,x+16,y+13,w-32,10,0x000000,.18);
+    box(c,x+223,y+7,13,h-12,0x6d4630,1);
+    box(c,x+454,y+7,13,h-12,0x6d4630,1);
+    box(c,x+224,y+9,2,h-17,0xce9459,.22);
+    box(c,x+455,y+9,2,h-17,0xce9459,.22);
+    for(int bay=0;bay<3;bay++) {
+        double bx=x+19+bay*230, stop=bx+195;
+        double cx=bx;
+        int id=0;
+        while(cx<stop) {
+            uint32_t rnd=scramble(2801+(uint32_t)(bay*173+id*13));
+            double width=5+(rnd%8), shift=(rnd>>8)%13;
+            double height=144-shift;
+            uint32_t palettes[]={0xa6614e,0xc69768,0x2d6867,0x66647d,
+                                 0xb9a37e,0x6b474c,0x4b7161,0xc1a16a,
+                                 0x916356,0x425764,0x9a7b58};
+            uint32_t col=palettes[(rnd>>16)%11];
+            if(cx+width>stop) width=stop-cx;
+            box(c,cx,y+17+shift,width,height,col,1);
+            box(c,cx+.6,y+18+shift,1,height-3,0xffffff,.18);
+            box(c,cx+width-1.5,y+18+shift,1,height-3,0x061a20,.30);
+            if(id%3==0) {
+                box(c,cx+1,y+34+shift,width-2,2,0xeed6b3,.58);
+                box(c,cx+1,y+127,width-2,1,0xeed6b3,.36);
+            }
+            if(id%5==0) {
+                box(c,cx+width/2,y+50+shift,1,28,0xf3dfbc,.42);
+                box(c,cx+width/2,y+83+shift,1,5,0xf3dfbc,.26);
+            }
+            cx+=width+1.7; id++;
+        }
+        box(c,bx-10,y+166,215,5,0x060f14,.85);
     }
-    rect(cr,0,h*.93,w,h*.07,.14,.055,.023,1);
-    rect(cr,0,h*.93,w,5,.64,.32,.13,.85);
+    box(c,x-8,y-11,w+16,18,0x3c291e,1);
+    linear_box(c,x-8,y-11,w+16,7,0,y-11,0,y-4,0x996a45,0x593925);
+    box(c,x-8,y+172,w+16,17,0x5e3d2b,1);
+    box(c,x-8,y+172,w+16,3,0xb17b4c,.7);
+    box(c,x+9,y+189,w-18,5,0x151719,.8);
+    lettering(c,x+30,y+186,8.2,"JAZZ",0xe4bd8c,.62,1);
+    lettering(c,x+252,y+186,8.2,"SOUL",0xe4bd8c,.62,1);
+    lettering(c,x+484,y+186,8.2,"CLASSICS",0xe4bd8c,.62,1);
 }
 
-static void draw_turntable(cairo_t *cr,double w,double h) {
-    double x=w*.432,y=h*.515,ww=w*.548,hh=h*.328;
-    /* Soft tabletop shadow and a handsome walnut plinth. */
-    round_path(cr,x+8,y+hh*.82,ww,hh*.28,14); cairo_set_source_rgba(cr,.025,.012,.006,.55); cairo_fill(cr);
-    cairo_pattern_t *side=cairo_pattern_create_linear(0,y+hh*.52,0,y+hh*1.1);
-    cairo_pattern_add_color_stop_rgb(side,0,.39,.17,.065); cairo_pattern_add_color_stop_rgb(side,.45,.25,.085,.027); cairo_pattern_add_color_stop_rgb(side,1,.11,.035,.014);
-    round_path(cr,x+5,y+hh*.59,ww-10,hh*.47,13); cairo_set_source(cr,side); cairo_fill(cr); cairo_pattern_destroy(side);
-    cairo_pattern_t *top=cairo_pattern_create_linear(x,y,x+ww,y+hh);
-    cairo_pattern_add_color_stop_rgb(top,0,.46,.23,.095); cairo_pattern_add_color_stop_rgb(top,.50,.20,.09,.035); cairo_pattern_add_color_stop_rgb(top,1,.35,.16,.06);
-    round_path(cr,x,y,ww,hh*.66,14); cairo_set_source(cr,top); cairo_fill(cr); cairo_pattern_destroy(top);
-    cairo_set_source_rgba(cr,.84,.46,.18,.56); cairo_set_line_width(cr,2);
-    round_path(cr,x+4,y+3,ww-8,hh*.64,12); cairo_stroke(cr);
-    /* black control deck */
-    round_path(cr,x+ww*.035,y+hh*.07,ww*.93,hh*.52,10);
-    cairo_pattern_t *panel=cairo_pattern_create_linear(0,y,0,y+hh*.6);
-    cairo_pattern_add_color_stop_rgb(panel,0,.12,.115,.10); cairo_pattern_add_color_stop_rgb(panel,1,.025,.023,.021);
-    cairo_set_source(cr,panel); cairo_fill(cr); cairo_pattern_destroy(panel);
-    /* platter rim and exposed brushed-metal edge, aligned to the record overlay */
-    double cx=w*.643,cy=h*.566,rx=w*.171,ry=h*.060;
-    ellipse(cr,cx,cy+4,rx*1.045,ry*1.14,.07,.035,.015,.72);
-    ellipse(cr,cx,cy,rx*1.035,ry*1.10,.63,.43,.20,1);
-    ellipse(cr,cx,cy-1,rx*1.012,ry*1.035,.78,.66,.43,1);
-    ellipse(cr,cx,cy-2,rx*.988,ry*.98,.12,.105,.09,1);
-    ellipse(cr,cx,cy-3,rx*.975,ry*.94,.035,.034,.031,1);
-    /* tonearm pivot tower, counterweight and the arm running onto the record */
-    ellipse(cr,w*.842,h*.510,w*.028,h*.017,.055,.045,.034,1);
-    ellipse(cr,w*.842,h*.496,w*.021,h*.031,.29,.25,.19,1);
-    ellipse(cr,w*.842,h*.482,w*.018,h*.022,.63,.53,.37,1);
-    ellipse(cr,w*.862,h*.469,w*.026,h*.027,.22,.205,.17,1);
-    ellipse(cr,w*.862,h*.469,w*.021,h*.022,.46,.40,.30,1);
-    cairo_set_line_cap(cr,CAIRO_LINE_CAP_ROUND);
-    cairo_move_to(cr,w*.842,h*.506); cairo_line_to(cr,w*.784,h*.535);
-    cairo_set_source_rgb(cr,.62,.53,.38); cairo_set_line_width(cr,w*.007); cairo_stroke(cr);
-    cairo_move_to(cr,w*.842,h*.506); cairo_line_to(cr,w*.784,h*.535);
-    cairo_set_source_rgba(cr,.95,.83,.61,.88); cairo_set_line_width(cr,w*.0015); cairo_stroke(cr);
-    /* controls and switch on the exposed right side of the deck */
-    ellipse(cr,w*.935,h*.535,w*.012,h*.013,.055,.048,.037,1);
-    ellipse(cr,w*.935,h*.530,w*.008,h*.007,.52,.44,.31,1);
-    ellipse(cr,w*.904,h*.600,w*.010,h*.009,.08,.065,.045,1);
-    ellipse(cr,w*.904,h*.596,w*.006,h*.005,.73,.61,.40,1);
-    cairo_set_source_rgb(cr,.68,.55,.37); cairo_set_line_width(cr,2.3);
-    cairo_move_to(cr,w*.865,h*.605); cairo_line_to(cr,w*.880,h*.592); cairo_stroke(cr);
-    rect(cr,x+ww*.04,y+hh*.59,ww*.92,2,.70,.40,.17,.62);
+static void draw_table(cairo_t *c) {
+    linear_box(c,0,487,1200,267,0,487,0,754,0x6d4b36,0x312927);
+    radial_glow(c,190,510,530,0xf1ab6f,.11);
+    radial_glow(c,1120,529,380,0xe6a156,.10);
+    for(int i=0;i<52;i++) {
+        double yy=493+i*5.0;
+        uint32_t rnd=scramble((uint32_t)i+90);
+        cairo_move_to(c,-30,yy);
+        cairo_curve_to(c,250,yy-(rnd%10),620,yy+((rnd>>5)%13)-6,1220,yy-1);
+        ink(c,i%7==0?0x241f1d:0xdfad76,i%7==0?.085:.042);
+        cairo_set_line_width(c,i%9==0?1.6:.75); cairo_stroke(c);
+    }
+    /* A little specular life where the lamp and window hit the wood. */
+    const double reflect1[]={0,509,242,509,262,546,0,547};
+    polygon(c,reflect1,4,0xf8c792,.020);
+    const double reflect2[]={910,520,1200,520,1200,573,965,566};
+    polygon(c,reflect2,4,0xffd4a4,.018);
+    segment(c,0,487,1200,487,2.7,0xd09b69,.42);
+    box(c,0,751,1200,49,0x211c1c,1);
+    box(c,0,751,1200,5,0x895633,.72);
+    box(c,0,758,1200,2,0xe0a164,.15);
+    for(int i=0;i<5;i++) segment(c,0,769+i*8,1200,769+i*8,1,0x8a5942,.09);
+}
+
+static void foliage(cairo_t *c,double x,double y,double len,double size,
+                    double angle,uint32_t col) {
+    cairo_save(c); cairo_translate(c,x,y); cairo_rotate(c,angle);
+    cairo_move_to(c,0,0);
+    cairo_curve_to(c,len*.17,-size*.60,len*.70,-size*.75,len,0);
+    cairo_curve_to(c,len*.72,size*.64,len*.25,size*.63,0,0);
+    cairo_close_path(c); ink(c,col,1); cairo_fill(c);
+    cairo_move_to(c,3,0);
+    cairo_curve_to(c,len*.3,-size*.12,len*.70,size*.07,len*.90,0);
+    ink(c,0xb9be78,.26); cairo_set_line_width(c,1.0); cairo_stroke(c);
+    cairo_restore(c);
+}
+static void draw_plant(cairo_t *c) {
+    const double x=131,base=477;
+    radial_glow(c,147,392,140,0x152e25,.19);
+    /* A mature monstera with articulated stems instead of repeated ovals. */
+    for(int i=0;i<11;i++) {
+        double tx=x+((i*37)%110)-55;
+        double ty=239+i*20;
+        cairo_move_to(c,x,base-5);
+        cairo_curve_to(c,x-24+i*5,base-113,x+((i*29)%95)-47,ty+57,tx,ty);
+        ink(c,0x263f31,1); cairo_set_line_width(c,2.1+(i%3)*.65); cairo_stroke(c);
+        foliage(c,tx,ty,70+(i%4)*12,32+(i%3)*5,
+                (i%2)?2.95+(i%4)*.14:-.45+(i%3)*.15,
+                i%3==0?0x46634b:(i%3==1?0x375d48:0x244b3f));
+    }
+    foliage(c,x+12,340,90,39,-1.20,0x41694a);
+    foliage(c,x-19,306,85,34,3.95,0x2d5745);
+    foliage(c,x+12,261,88,33,-.79,0x557459);
+    /* Ground shadow and a tapered glazed terracotta pot. */
+    oval(c,x+8,539,71,13,0x1a1717,.48);
+    const double pot[]={89,463,173,463,160,524,153,534,106,534,99,524};
+    polygon(c,pot,6,0x9c6b4f,1);
+    const double potshade[]={146,467,174,467,160,524,153,534,143,534};
+    polygon(c,potshade,5,0x614638,.48);
+    oval(c,131,464,47,12,0xc18d66,1);
+    oval(c,131,463,39,8,0x46372d,1);
+    round_box(c,84,451,95,13,5,0xd29a6e,1);
+    box(c,91,461,82,2,0x593f33,.5);
+    segment(c,103,478,98,509,2,0xe3b990,.28);
+}
+
+static void draw_cup(cairo_t *c) {
+    oval(c,82,651,63,15,0x171a1c,.36);
+    /* Draw the handle first so the mug body can occlude part of it and make the
+       connection feel physical rather than floating. */
+    cairo_save(c);
+    cairo_translate(c,92,607);
+    cairo_scale(c,1.0,.86);
+    cairo_arc(c,0,0,21,-SCENE_PI*.60,SCENE_PI*.48);
+    ink(c,0xd9cdc0,1); cairo_set_line_width(c,8.8); cairo_stroke(c);
+    cairo_arc(c,0,0,21,-SCENE_PI*.60,SCENE_PI*.48);
+    ink(c,0x8c8479,.38); cairo_set_line_width(c,2.6); cairo_stroke(c);
+    cairo_restore(c);
+
+    cairo_pattern_t *p=cairo_pattern_create_linear(38,569,96,643);
+    cairo_pattern_add_color_stop_rgb(p,0,SCENE_RGB(0xf3e6cf));
+    cairo_pattern_add_color_stop_rgb(p,1,SCENE_RGB(0xa39a8f));
+    cairo_move_to(c,40,582);cairo_line_to(c,95,582);cairo_line_to(c,92,635);
+    cairo_curve_to(c,84,647,59,647,47,636);cairo_close_path(c);
+    cairo_set_source(c,p);cairo_fill(c);cairo_pattern_destroy(p);
+
+    /* Rim and coffee */
+    oval(c,68,584,30.5,8.4,0xdfd3bf,1);
+    oval(c,68,584,24.8,5.7,0x413128,1);
+    oval(c,64,582,17.8,2.4,0x7c5f48,.43);
+
+    /* Hide part of the handle with the body so it looks attached at both contact points. */
+    box(c,86,590,10,28,0xcbbfae,.34);
+    segment(c,53,602,49.5,626.5,1.8,0xffffff,.17);
+    oval(c,90,604,9,3.2,0x1c1918,.09);
+    oval(c,90,616,8,3.0,0x1c1918,.08);
+}
+
+static void draw_sleeve(cairo_t *c) {
+    /* The record is already on the platter. This is its EMPTY jacket.
+       Artwork, lettering and paper grain are all drawn in one square local
+       coordinate system, then projected onto the table using Cairo's matrix.
+       Unlike the earlier versions, no second, half-exposed LP is invented. */
+
+    /* One restrained contact shadow and the narrow thickness of a paper sleeve. */
+    const double shadow[]={197,619,357,574,444,706,284,751};
+    polygon(c,shadow,4,0x0a1014,.43);
+    const double paper_edge[]={187,612,347,567,435,699,275,744};
+    polygon(c,paper_edge,4,0xcbb898,1);
+    segment(c,275,744,435,699,2.4,0x665444,.50);
+    segment(c,347,567,435,699,1.6,0xffebcb,.36);
+
+    cairo_save(c);
+    cairo_matrix_t mat;
+    /* 200x200 album sleeve mapped to tabletop parallelogram. */
+    cairo_matrix_init(&mat,.80,-.225,.435,.66,186,608);
+    cairo_transform(c,&mat);
+
+    /* A tactile, cream paper stock surrounding the printed artwork. */
+    box(c,0,0,200,200,0xe2d2b7,1);
+    box(c,6,6,188,188,0x102b34,1);
+    cairo_save(c);
+    cairo_rectangle(c,6,6,188,188); cairo_clip(c);
+
+    /* High-contrast, editorial artwork: a layered sound wave at dusk.
+       No fake record printed onto a sleeve, no crowded stickers. */
+    linear_box(c,6,6,188,188,8,5,185,191,0x142c3a,0x071a25);
+    radial_glow(c,131,76,115,0xb66950,.18);
+
+    /* A few luminous, hand-composed wave ribbons. */
+    for(int k=0;k<5;k++) {
+        double off=(double)k*11;
+        cairo_move_to(c,0,78+off);
+        cairo_curve_to(c,41,28+off,85,39+off,118,77+off);
+        cairo_curve_to(c,145,109+off,170,103+off,206,68+off);
+        ink(c,k==0?0xeabf90:(k<3?0xc78a68:0x819a91),k==0?.86:(.38-k*.035));
+        cairo_set_line_width(c,k==0?5.6:(k==1?3.3:1.5));
+        cairo_stroke(c);
+    }
+    for(int k=0;k<4;k++) {
+        double off=(double)k*10;
+        cairo_move_to(c,-8,59+off);
+        cairo_curve_to(c,36,12+off,83,25+off,126,59+off);
+        cairo_curve_to(c,162,84+off,174,74+off,211,43+off);
+        ink(c,0xe2a97c,.11-k*.016);
+        cairo_set_line_width(c,1.2); cairo_stroke(c);
+    }
+    /* Editorial restraint: generous dark area for just one title. */
+    linear_box(c,6,130,188,64,6,130,6,194,0x182f39,0x0b202b);
+    box(c,22,140,31,1.6,0xddad7c,.86);
+    lettering(c,21,164,22.5,"SLOW SIGNAL",0xf7e8cc,1,1);
+    lettering(c,22,179,7.1,"ORIGINAL LISTENING SESSIONS",0xd3be9f,.86,0);
+
+    /* Minimal catalog details align to the square cover's axes. */
+    lettering(c,21,28,7.0,"NEEDLE   /   014",0xf5e5c9,.83,1);
+    oval(c,126,25.6,2.5,2.5,0xe6a679,.95);
+    lettering(c,134,28,6.6,"ON DECK",0xe4bb8d,.87,1);
+    box(c,21,36,158,1,0xf5d4b1,.15);
+    lettering(c,22,188,5.5,"STEREO   ·   33 1/3 RPM",0xd5b48f,.67,0);
+    lettering(c,149,188,5.5,"2026",0xd5b48f,.67,0);
+
+    /* Subtle print texture, deterministic and low-opacity. */
+    for(int i=0;i<84;i++) {
+        uint32_t n=scramble((uint32_t)(i*19+2301));
+        double x=8+(n%186), y=9+((n>>11)%184);
+        segment(c,x,y,x+2.4,y,.4,0xffffff,.022);
+    }
+    cairo_restore(c);
+    /* Paper crease and a soft edge-catching specular highlight. */
+    segment(c,2,3,197,3,1.2,0xfff3d9,.60);
+    segment(c,3,3,3,197,1.4,0xffffff,.28);
+    cairo_restore(c);
+}
+
+static void draw_sideboard_and_lamp(cairo_t *c) {
+    radial_glow(c,1090,290,244,0xffae5b,.25);
+    radial_glow(c,1094,300,120,0xffd09a,.16);
+    /* lamp spill reaching the wall and tabletop */
+    const double spill[]={977,330,1198,350,1198,556,932,552};
+    polygon(c,spill,4,0xffc37b,.06);
+    box(c,1026,444,174,90,0x3b2b25,1);
+    box(c,1021,435,179,14,0x815838,1);
+    box(c,1021,435,179,3,0xe2a36a,.55);
+    box(c,1038,459,150,3,0x190f12,.45);
+    box(c,1038,496,150,2,0x1a1414,.54);
+    oval(c,1109,480,3,3,0xe5bb76,.70);
+    oval(c,1109,514,3,3,0xe5bb76,.70);
+    oval(c,1098,440,48,10,0x161b1c,.38);
+    oval(c,1092,431,38,9,0xb38858,1);
+    oval(c,1092,428,27,6,0x694a32,1);
+    round_box(c,1085,290,13,139,5,0xa5774a,1);
+    box(c,1088,299,3,125,0xe1b783,.52);
+    oval(c,1092,293,10,8,0xe2b17a,1);
+    const double lamp[]={1044,253,1146,253,1180,328,1011,328};
+    polygon(c,lamp,4,0xe5c79a,1);
+    const double lampleft[]={1044,253,1080,253,1055,328,1011,328};
+    polygon(c,lampleft,4,0xffebb9,.34);
+    const double lampright[]={1114,253,1146,253,1180,328,1131,328};
+    polygon(c,lampright,4,0xb27d57,.35);
+    const double lampinner[]={1058,263,1134,263,1159,318,1032,318};
+    polygon(c,lampinner,4,0xffdd9e,.21);
+    oval(c,1095,253,51,7,0xc7a278,1);
+    oval(c,1095,328,85,9,0xc08b5c,1);
+    oval(c,1095,326,79,5,0xffdc9a,.53);
+    segment(c,1021,326,1169,326,1.5,0xffdfa4,.40);
+}
+
+static void draw_turntable(cairo_t *c) {
+    const double cx=771.6,cy=452.8,rx=205.2,ry=48.0;
+    oval(c,823,667,397,32,0x101618,.31);
+    radial_glow(c,805,610,350,0x151717,.11);
+    const double base[]={411,551,1190,551,1183,660,431,660};
+    polygon(c,base,4,0x392924,1);
+    const double front[]={418,564,1188,564,1180,646,427,646};
+    polygon(c,front,4,0x744a31,1);
+    const double frontbelow[]={427,616,1184,616,1180,646,427,646};
+    polygon(c,frontbelow,4,0x422a22,.58);
+    for(int i=0;i<14;i++) {
+        double yy=573+i*4.8;
+        segment(c,434,yy,1174,yy,1,i%3?0xb1794a:0x2d211e,i%3?.085:.13);
+    }
+    const double bevel[]={477,389,1093,389,1190,561,413,561};
+    polygon(c,bevel,4,0x956541,1);
+    const double brassfront[]={415,560,1188,560,1185,566,419,566};
+    polygon(c,brassfront,4,0xd09a5a,.70);
+    const double woodtop[]={481,393,1089,393,1181,555,423,555};
+    polygon(c,woodtop,4,0x43352d,1);
+    const double controlpanel[]={492,401,1081,401,1167,547,437,547};
+    polygon(c,controlpanel,4,0x141c22,1);
+    const double gloss1[]={570,407,960,410,1060,533,676,527};
+    polygon(c,gloss1,4,0xffffff,.018);
+    segment(c,491,402,1083,402,1.5,0xd2aa76,.42);
+    segment(c,439,546,1165,546,1.2,0xe9ae71,.30);
+    segment(c,492,402,438,545,1.8,0x5a6060,.45);
+    segment(c,1082,402,1166,546,1.8,0x5a6060,.38);
+    oval(c,cx+4,cy+6,rx+17,ry+10,0x080e12,.72);
+    oval(c,cx,cy+2,rx+12,ry+6,0x42474a,1);
+    oval_ring(c,cx,cy+1,rx+10,ry+5,.028,0xbeb49b,1);
+    oval(c,cx,cy,rx+6,ry+2,0x77776f,1);
+    oval(c,cx,cy-1,rx,ry,0x080e13,1);
+    cairo_save(c);cairo_translate(c,cx,cy-1);cairo_scale(c,rx,ry);
+    cairo_pattern_t *vinyl=cairo_pattern_create_linear(-1,-1,1,1);
+    cairo_pattern_add_color_stop_rgb(vinyl,0,SCENE_RGB(0x31393c));
+    cairo_pattern_add_color_stop_rgb(vinyl,.35,SCENE_RGB(0x0d151a));
+    cairo_pattern_add_color_stop_rgb(vinyl,.75,SCENE_RGB(0x182228));
+    cairo_pattern_add_color_stop_rgb(vinyl,1,SCENE_RGB(0x080c11));
+    cairo_arc(c,0,0,.976,0,2*SCENE_PI);
+    cairo_set_source(c,vinyl);cairo_fill(c);cairo_pattern_destroy(vinyl);
+    for(int i=0;i<27;i++) {
+        double rr=.30+i*.0245;
+        cairo_arc(c,0,0,rr,0,2*SCENE_PI);
+        ink(c,i%5==0?0xd6af87:0xdce2d5,i%5==0?.11:.045);
+        cairo_set_line_width(c,.0035);cairo_stroke(c);
+    }
+    cairo_restore(c);
+    /* specular streaks on the vinyl for a more physical read */
+    oval(c,cx-66,cy-8,52,8,0xffffff,.03);
+    oval(c,cx+74,cy+10,66,9,0xffffff,.016);
+    /* Matching navy + champagne centre label ties the played record to its jacket. */
+    oval(c,cx,cy-1,45,11,0xe0c59e,1);
+    oval(c,cx,cy-1,40,9,0x173846,1);
+    oval_ring(c,cx,cy-1,38,9,.04,0xe7b989,.30);
+    oval(c,cx,cy-1,9,2.7,0x302b2a,1);
+    oval(c,cx,cy-1,2.8,1.6,0xded8c3,1);
+    oval(c,1078,505,29,11,0x0a1014,.78);
+    oval(c,1078,501,26,10,0x9b9684,1);
+    oval(c,1078,498,22,8,0x41494b,1);
+    oval(c,1078,497,16,5,0x6c7472,.55);
+    oval(c,1135,527,16,9,0x101618,1);
+    oval(c,1135,525,12,6,0xb79b74,1);
+    oval(c,1135,524,7,3,0x493e34,1);
+    oval(c,1037,529,4,2,0x89d6a9,1);
+    radial_glow(c,1037,528,27,0x80e0a2,.20);
+    lettering(c,999,512,8.7,"33 / 45",0xe3ccac,.54,1);
+    lettering(c,1024,541,6.2,"POWER",0xdfcbac,.54,0);
+    oval(c,1043,414,35,15,0x080d11,.88);
+    oval(c,1043,405,29,19,0xb1a994,1);
+    oval(c,1043,400,23,13,0x5c6262,1);
+    oval(c,1043,399,15,8,0xd2c4a6,1);
+    oval_ring(c,1043,402,26,15,.085,0xf3daba,.28);
+    cairo_set_line_cap(c,CAIRO_LINE_CAP_ROUND);
+    segment(c,1044,405,1104,391,8,0x252c2e,1);
+    segment(c,1091,392,1116,387,22,0x636969,1);
+    segment(c,1091,390,1116,386,5,0xccbca0,.55);
+    cairo_move_to(c,1042,408);
+    cairo_curve_to(c,1039,419,1005,423,982,430);
+    cairo_curve_to(c,963,434,948,438,941,442);
+    ink(c,0x151b1d,.78);cairo_set_line_width(c,11);cairo_stroke(c);
+    cairo_move_to(c,1042,405);
+    cairo_curve_to(c,1038,416,1005,420,982,427);
+    cairo_curve_to(c,965,432,950,436,942,439);
+    ink(c,0xc0b39a,1);cairo_set_line_width(c,6);cairo_stroke(c);
+    cairo_move_to(c,1041,403);
+    cairo_curve_to(c,1038,413,1005,418,982,425);
+    cairo_curve_to(c,966,430,952,433,942,437);
+    ink(c,0xf7e6bc,.50);cairo_set_line_width(c,1.4);cairo_stroke(c);
+    oval(c,946,446,26,6,0x000000,.12);
+    cairo_save(c);cairo_translate(c,942,441);cairo_rotate(c,-.22);
+    round_box(c,-11,-5,23,11,2,0x252f34,1);
+    box(c,-9,-3,14,3,0xf0cda1,.72);
+    segment(c,-4,6,-3,11,1.4,0xddd2bb,.78);
+    cairo_restore(c);
+    segment(c,429,571,1175,571,1.3,0xf1bd81,.38);
+    segment(c,432,640,1176,640,1.5,0x191719,.56);
+    lettering(c,475,613,15,"N E E D L E",0xefcfaa,.88,1);
+    lettering(c,475,630,8.0,"STEREOPHONIC  /  HI-FIDELITY",0xd1a783,.62,0);
+    box(c,913,589,1,45,0xd9a36d,.35);
+    lettering(c,930,605,8.8,"BELT DRIVE  ·  MK II",0xe6bd91,.62,1);
+    oval(c,1125,610,15,15,0x241c1a,1);
+    oval(c,1125,607,11,11,0x987959,1);
+    oval(c,1125,605,6,6,0xd1ad78,1);
+    oval(c,1147,605,3.2,3.2,0x9ed2a4,1);
+    radial_glow(c,1147,605,20,0x8ed8a1,.22);
+    round_box(c,463,647,43,16,4,0x131718,.85);
+    round_box(c,1107,646,42,15,4,0x131718,.85);
+}
+
+static void atmosphere(cairo_t *c) {
+    for(int i=0;i<72;i++) {
+        uint32_t n=scramble((uint32_t)i*103+461);
+        double x=(n%1200),y=((n>>11)%735);
+        double a=(x<300)?.08:.026;
+        oval(c,x,y,(n>>24)%3==0?1.4:.7,.7,0xffe4b9,a);
+    }
+    /* Slight filmic grade ties the illustrative primitives together. */
+    box(c,0,0,1200,800,0x271f18,.045);
+    cairo_pattern_t *p=cairo_pattern_create_radial(625,372,160,625,372,860);
+    cairo_pattern_add_color_stop_rgba(p,0,0,0,0,0);
+    cairo_pattern_add_color_stop_rgba(p,.70,0,0,0,.04);
+    cairo_pattern_add_color_stop_rgba(p,1,0,0,0,.42);
+    cairo_rectangle(c,0,0,1200,800);cairo_set_source(c,p);cairo_fill(c);
+    cairo_pattern_destroy(p);
 }
 
 void draw_programmatic_scene(cairo_t *cr,double w,double h) {
-    cairo_pattern_t *wall=cairo_pattern_create_linear(0,0,0,h*.60);
-    cairo_pattern_add_color_stop_rgb(wall,0,.25,.17,.12); cairo_pattern_add_color_stop_rgb(wall,.55,.43,.28,.19); cairo_pattern_add_color_stop_rgb(wall,1,.32,.19,.11);
-    cairo_rectangle(cr,0,0,w,h*.62); cairo_set_source(cr,wall); cairo_fill(cr); cairo_pattern_destroy(wall);
-    /* fine plaster striations */
-    for(int i=0;i<120;i++) {
-        double xx=(i*173)% (int)w, yy=(i*97)%(int)(h*.56);
-        cairo_set_source_rgba(cr,.98,.73,.47,(i%4==0)?.025:.012);
-        cairo_set_line_width(cr,1); cairo_move_to(cr,xx,yy); cairo_line_to(cr,xx+20+(i%18),yy+((i%3)-1)*2); cairo_stroke(cr);
-    }
-    draw_window(cr,w,h);
-    draw_frames(cr,w,h);
-    draw_shelf(cr,w,h);
-    draw_lamp(cr,w,h);
-    draw_desk(cr,w,h);
-    draw_plant(cr,w,h);
-    draw_turntable(cr,w,h);
-    /* gentle overall edge falloff */
-    cairo_pattern_t *shade=cairo_pattern_create_radial(w*.52,h*.48,w*.14,w*.52,h*.48,w*.75);
-    cairo_pattern_add_color_stop_rgba(shade,0,0,0,0,0); cairo_pattern_add_color_stop_rgba(shade,1,.02,.012,.006,.35);
-    cairo_rectangle(cr,0,0,w,h); cairo_set_source(cr,shade); cairo_fill(cr); cairo_pattern_destroy(shade);
+    if(!cr||w<=0||h<=0) return;
+    cairo_save(cr);
+    cairo_scale(cr,w/1200.0,h/800.0);
+    draw_wall(cr);
+    draw_window(cr);
+    draw_gallery(cr);
+    draw_shelf(cr);
+    draw_table(cr);
+    draw_sideboard_and_lamp(cr);
+    draw_plant(cr);
+    draw_cup(cr);
+    draw_sleeve(cr);
+    draw_turntable(cr);
+    atmosphere(cr);
+    cairo_restore(cr);
 }
