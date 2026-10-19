@@ -242,16 +242,35 @@ static void draw_player_metadata(cairo_t *cr, double scene_w, double scene_h,
     g_free(player_name);
 }
 
-static void cache_static_scene(Wallpaper *wallpaper, double scene_w, double scene_h) {
-    if (!wallpaper || (wallpaper->static_scene && wallpaper->static_scene_height == scene_h)) return;
+static void set_scene_transform(cairo_t *cr, int w, int h, double scene_w, double scene_h, double zoom) {
+    const double fit = MAX(w/scene_w, h/scene_h);
+    cairo_translate(cr, w*.5, h*.5); cairo_scale(cr, fit*zoom, fit*zoom);
+    cairo_translate(cr, -scene_w*.5, -scene_h*.5);
+}
+
+static void cache_static_scene(Wallpaper *wallpaper, int w, int h,
+                               double scene_w, double scene_h, double zoom) {
+    if (!wallpaper || (wallpaper->static_scene && wallpaper->width == w &&
+        wallpaper->height == h && wallpaper->static_scene_zoom == zoom)) return;
     if (wallpaper->static_scene) cairo_surface_destroy(wallpaper->static_scene);
 
-    cairo_rectangle_t bounds = {0, 0, scene_w, scene_h};
-    wallpaper->static_scene = cairo_recording_surface_create(CAIRO_CONTENT_COLOR_ALPHA, &bounds);
+    /* Rasterize once per monitor; replaying a Cairo recording still reruns every scene path per frame. */
+    const double resolution_scale = MIN(1.0, 2560.0 / MAX(w, h));
+    int cache_w = MAX(1, (int)lround(w * resolution_scale));
+    int cache_h = MAX(1, (int)lround(h * resolution_scale));
+    wallpaper->static_scene = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, cache_w, cache_h);
     cairo_t *static_cr = cairo_create(wallpaper->static_scene);
+    cairo_set_operator(static_cr, CAIRO_OPERATOR_SOURCE);
+    cairo_set_source_rgba(static_cr, 0, 0, 0, 0); cairo_paint(static_cr);
+    cairo_set_operator(static_cr, CAIRO_OPERATOR_OVER);
+    cairo_scale(static_cr, cache_w / (double)w, cache_h / (double)h);
+    set_scene_transform(static_cr, w, h, scene_w, scene_h, zoom);
     draw_programmatic_scene(static_cr, scene_w, scene_h);
     cairo_destroy(static_cr);
-    wallpaper->static_scene_height = scene_h;
+    wallpaper->width = w;
+    wallpaper->height = h;
+    wallpaper->static_scene_zoom = zoom;
+    cairo_surface_flush(wallpaper->static_scene);
 }
 
 void draw_scene(cairo_t *cr, int w, int h, double angle, Wallpaper *wallpaper) {
@@ -262,18 +281,24 @@ void draw_scene(cairo_t *cr, int w, int h, double angle, Wallpaper *wallpaper) {
     const double scene_h = scene_w * ((double)h / MAX(w, 1));
     const char *framing = get_pref("framing", "mid");
     double zoom = g_strcmp0(framing, "wide") == 0 ? .94 : g_strcmp0(framing, "close") == 0 ? 1.07 : 1.0;
-    const double fit = MAX(w/scene_w, h/scene_h);
-    cairo_translate(cr, w*.5, h*.5); cairo_scale(cr, fit*zoom, fit*zoom);
-    cairo_translate(cr, -scene_w*.5, -scene_h*.5);
     double transition = player_transition_progress();
     gboolean transitioning = player_transition_active();
     if (!get_bool_pref("transparent-background", FALSE)) {
         if (wallpaper) {
-            cache_static_scene(wallpaper, scene_w, scene_h);
+            cache_static_scene(wallpaper, w, h, scene_w, scene_h, zoom);
+            int cache_w = cairo_image_surface_get_width(wallpaper->static_scene);
+            int cache_h = cairo_image_surface_get_height(wallpaper->static_scene);
+            cairo_save(cr); cairo_identity_matrix(cr);
+            cairo_scale(cr, w / (double)cache_w, h / (double)cache_h);
             cairo_set_source_surface(cr, wallpaper->static_scene, 0, 0);
             cairo_paint(cr);
-        } else draw_programmatic_scene(cr, scene_w, scene_h);
+            cairo_restore(cr);
+        } else {
+            cairo_save(cr); set_scene_transform(cr, w, h, scene_w, scene_h, zoom);
+            draw_programmatic_scene(cr, scene_w, scene_h); cairo_restore(cr);
+        }
     }
+    cairo_save(cr); set_scene_transform(cr, w, h, scene_w, scene_h, zoom);
     if (transitioning) {
         draw_recent_covers(cr, scene_w, scene_h, player_transition_recent_covers(), &transition_from, 1.0-transition);
         draw_current_cover(cr, scene_w, scene_h, &transition_from, 1.0-transition);
