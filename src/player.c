@@ -49,7 +49,8 @@ static void remember_current_cover(void) {
     item->key = key;
     item->cover = cover;
     g_ptr_array_insert(recent_covers, 0, item);
-    while (recent_covers->len > 3) g_ptr_array_remove_index(recent_covers, recent_covers->len - 1);
+    /* Retain the current item plus three previous tracks for the wall gallery. */
+    while (recent_covers->len > 4) g_ptr_array_remove_index(recent_covers, recent_covers->len - 1);
 }
 
 const GPtrArray *player_recent_covers(void) { return recent_covers; }

@@ -28,24 +28,6 @@ static void rounded_rect(cairo_t *cr, double x, double y, double w, double h, do
     cairo_close_path(cr);
 }
 
-static void text(cairo_t *cr, const char *value, double x, double y, double size,
-                 const char *face, cairo_font_weight_t weight, double r, double g, double b, double a) {
-    cairo_select_font_face(cr, face, CAIRO_FONT_SLANT_NORMAL, weight);
-    cairo_set_font_size(cr, size);
-    cairo_move_to(cr, x, y);
-    set_source(cr, r, g, b, a);
-    cairo_show_text(cr, value ? value : "");
-}
-
-static void centered_text(cairo_t *cr, const char *value, double cx, double y, double size,
-                          const char *face, double r, double g, double b, double a) {
-    cairo_text_extents_t ext;
-    cairo_select_font_face(cr, face, CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
-    cairo_set_font_size(cr, size);
-    cairo_text_extents(cr, value ? value : "", &ext);
-    text(cr, value, cx - ext.width / 2.0, y, size, face, CAIRO_FONT_WEIGHT_NORMAL, r, g, b, a);
-}
-
 static void fitted_centered_text(cairo_t *cr, const char *value, double cx, double y,
                                 double max_width, double size, gboolean bold,
                                 double r, double g, double b, double a) {
@@ -105,7 +87,6 @@ static void draw_live_record(cairo_t *cr, int w, int h, double angle) {
     cairo_pattern_add_color_stop_rgb(label, 1, .24, .17, .11);
     cairo_arc(cr, 0, 0, rx*.23, 0, 2*G_PI); cairo_set_source(cr, label); cairo_fill(cr); cairo_pattern_destroy(label);
     cairo_arc(cr, 0, 0, rx*.23, 0, 2*G_PI); cairo_set_line_width(cr, MAX(1, w/1400.0)); set_source(cr, .13, .095, .06, .68); cairo_stroke(cr);
-    centered_text(cr, "33⅓", 0, rx*.035, rx*.052, "Sans", .16, .12, .075, .96);
     cairo_arc(cr, 0, 0, rx*.985, 0, 2*G_PI); cairo_set_line_width(cr, MAX(1, w/1700.0)); set_source(cr, .76, .64, .46, .60); cairo_stroke(cr);
     cairo_restore(cr);
 }
@@ -138,11 +119,17 @@ static void draw_recent_covers(cairo_t *cr, double scene_w, double scene_h) {
     /* These are the three square picture windows in scene.c's 1200 x 800 design. */
     const double centers[] = {459, 660, 861};
     const double side = 150;
-    for (guint i = 0; i < G_N_ELEMENTS(centers) && i < recent->len; i++) {
+    gchar *current_key = g_strdup_printf("%s\n%s\n%s", now.title ? now.title : "",
+        now.artist ? now.artist : "", now.album ? now.album : "");
+    guint shown = 0;
+    for (guint i = 0; i < recent->len && shown < G_N_ELEMENTS(centers); i++) {
         RecentCover *item = g_ptr_array_index((GPtrArray *)recent, i);
         if (!item) continue;
+        /* The current track is already on the table sleeve; the wall shows history. */
+        if ((now.title || now.artist || now.album) && g_strcmp0(item->key, current_key) == 0) continue;
+        const guint slot = shown++;
         double scale_x = scene_w / 1200.0, scale_y = scene_h / 800.0;
-        double x = (centers[i] - side*.5) * scale_x, y = 56 * scale_y;
+        double x = (centers[slot] - side*.5) * scale_x, y = 56 * scale_y;
         double cover_w = side * scale_x, cover_h = side * scale_y;
         if (item->cover) {
             cairo_save(cr);
@@ -152,12 +139,13 @@ static void draw_recent_covers(cairo_t *cr, double scene_w, double scene_h) {
         }
 
         gchar **metadata = g_strsplit(item->key ? item->key : "", "\n", 3);
-        fitted_centered_text(cr, metadata[0], centers[i] * scale_x, 231 * scale_y,
+        fitted_centered_text(cr, metadata[0], centers[slot] * scale_x, 231 * scale_y,
             164 * scale_x, 9.2 * scale_y, TRUE, .94, .86, .73, .98);
-        fitted_centered_text(cr, metadata[1], centers[i] * scale_x, 244 * scale_y,
+        fitted_centered_text(cr, metadata[1], centers[slot] * scale_x, 244 * scale_y,
             164 * scale_x, 7.0 * scale_y, FALSE, .78, .69, .57, .88);
         g_strfreev(metadata);
     }
+    g_free(current_key);
 }
 
 static void draw_current_cover(cairo_t *cr, double scene_w, double scene_h) {

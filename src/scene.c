@@ -77,13 +77,6 @@ static void radial_glow(cairo_t *c,double x,double y,double radius,
     cairo_rectangle(c,x-radius,y-radius,2*radius,2*radius);
     cairo_set_source(c,p); cairo_fill(c); cairo_pattern_destroy(p);
 }
-static void lettering(cairo_t *c,double x,double y,double size,
-                      const char *s,uint32_t rgb,double opacity,int bold) {
-    cairo_select_font_face(c,"Sans",CAIRO_FONT_SLANT_NORMAL,
-                            bold?CAIRO_FONT_WEIGHT_BOLD:CAIRO_FONT_WEIGHT_NORMAL);
-    cairo_set_font_size(c,size); ink(c,rgb,opacity);
-    cairo_move_to(c,x,y); cairo_show_text(c,s);
-}
 static uint32_t scramble(uint32_t n) {
     n^=n>>16; n*=0x7feb352du; n^=n>>15; n*=0x846ca68bu;
     return n^(n>>16);
@@ -232,9 +225,6 @@ static void draw_shelf(cairo_t *c) {
     box(c,x-8,y+172,w+16,17,0x5e3d2b,1);
     box(c,x-8,y+172,w+16,3,0xb17b4c,.7);
     box(c,x+9,y+189,w-18,5,0x151719,.8);
-    lettering(c,x+30,y+186,8.2,"JAZZ",0xe4bd8c,.62,1);
-    lettering(c,x+252,y+186,8.2,"SOUL",0xe4bd8c,.62,1);
-    lettering(c,x+484,y+186,8.2,"CLASSICS",0xe4bd8c,.62,1);
 }
 
 static void draw_table(cairo_t *c) {
@@ -460,8 +450,6 @@ static void draw_turntable(cairo_t *c) {
     oval(c,1135,524,7,3,0x493e34,1);
     oval(c,1037,529,4,2,0x89d6a9,1);
     radial_glow(c,1037,528,27,0x80e0a2,.20);
-    lettering(c,999,512,8.7,"33 / 45",0xe3ccac,.54,1);
-    lettering(c,1024,541,6.2,"POWER",0xdfcbac,.54,0);
     oval(c,1043,414,35,15,0x080d11,.88);
     oval(c,1043,405,29,19,0xb1a994,1);
     oval(c,1043,400,23,13,0x5c6262,1);
@@ -491,10 +479,7 @@ static void draw_turntable(cairo_t *c) {
     cairo_restore(c);
     segment(c,429,571,1175,571,1.3,0xf1bd81,.38);
     segment(c,432,640,1176,640,1.5,0x191719,.56);
-    lettering(c,475,613,15,"N E E D L E",0xefcfaa,.88,1);
-    lettering(c,475,630,8.0,"STEREOPHONIC  /  HI-FIDELITY",0xd1a783,.62,0);
     box(c,913,589,1,45,0xd9a36d,.35);
-    lettering(c,930,605,8.8,"BELT DRIVE  ·  MK II",0xe6bd91,.62,1);
     oval(c,1125,610,15,15,0x241c1a,1);
     oval(c,1125,607,11,11,0x987959,1);
     oval(c,1125,605,6,6,0xd1ad78,1);
